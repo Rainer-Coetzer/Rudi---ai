@@ -10,7 +10,7 @@ class WhisperPipeline {
 
   static async getInstance(progress_callback?: Function) {
     if (this.instance === null) {
-      this.instance = pipeline(this.task, this.model, { 
+      this.instance = pipeline(this.task as any, this.model, { 
         progress_callback,
         quantized: true // Use INT8 for much faster inference
       });

@@ -1,11 +1,10 @@
 import express from 'express';
-import { EdgeTTS } from 'edge-tts-universal';
+import { UniversalEdgeTTS, listVoicesUniversal } from 'edge-tts-universal';
 
 const router = express.Router();
 
 const TTS_VOICE = 'en-GB-RyanNeural';
 const TTS_FALLBACK_VOICE = 'en-GB-SoniaNeural';
-const tts = new EdgeTTS({ voice: TTS_VOICE });
 
 /**
  * Filter text for speech by stripping out goals, steps, tools, and JSON.
@@ -40,15 +39,20 @@ router.post('/tts', async (req, res) => {
   console.log(`[TTS] Synthesizing: "${cleanText.slice(0, 80)}…"`);
 
   try {
-    const result = await tts.synthesize(cleanText, TTS_VOICE);
+    const start = Date.now();
+    const tts = new UniversalEdgeTTS(cleanText, TTS_VOICE);
+    const result = await tts.synthesize();
+    const duration = Date.now() - start;
+    console.log(`[TTS] Primary synthesis complete in ${duration}ms`);
+    
     res.setHeader('Content-Type', 'audio/mpeg');
     const arrayBuffer = await result.audio.arrayBuffer();
     res.end(Buffer.from(arrayBuffer));
   } catch (err) {
     console.warn(`[TTS] Primary voice failed: ${err.message}. Trying fallback…`);
     try {
-      const fallbackTts = new EdgeTTS({ voice: TTS_FALLBACK_VOICE });
-      const result = await fallbackTts.synthesize(cleanText, TTS_FALLBACK_VOICE);
+      const ttsFallback = new UniversalEdgeTTS(cleanText, TTS_FALLBACK_VOICE);
+      const result = await ttsFallback.synthesize();
       res.setHeader('Content-Type', 'audio/mpeg');
       const arrayBuffer = await result.audio.arrayBuffer();
       res.end(Buffer.from(arrayBuffer));
@@ -65,7 +69,7 @@ router.post('/tts', async (req, res) => {
  */
 router.get('/voices', async (req, res) => {
   try {
-    const voices = await tts.getVoices();
+    const voices = await listVoicesUniversal();
     const english = voices.filter(v => v.Locale?.startsWith('en-')).map(v => v.ShortName);
     res.json({ voices: english, current: TTS_VOICE });
   } catch {

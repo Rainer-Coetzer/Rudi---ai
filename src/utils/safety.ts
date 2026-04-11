@@ -17,10 +17,15 @@ const TOOL_WHITELIST = [
   'create_task', 'list_tasks', 'complete_task', 'delete_task',
   'read_calendar', 'add_event', 'remove_event', 'upcoming_events',
   'summarize', 'daily_briefing',
+  // Meetings
+  'record_meeting_note', 'list_meeting_notes', 'delete_meeting_note',
   // Logging
   'get_logs',
-  // Self-improvement
-  'self_inspect', 'self_improve',
+  // Self-improvement & System
+  'self_inspect', 'self_improve', 'self_changelog', 'undo_action',
+  // Cognitive Core
+  'record_memory', 'list_memories', 'delete_memory',
+  'save_skill', 'list_skills', 'load_skill',
 ] as const;
 
 /** Paths Rudi must never touch */

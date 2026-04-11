@@ -23,7 +23,8 @@ export function useVoice() {
   
   // Performance: Persistent buffer to avoid GC pressure in the 60fps loop
   const dataArrayRef = useRef<Uint8Array | null>(null);
-  const lastLevelUpdateRef = useRef<number>(0);
+  const lastLevelUpdateRef = useRef<number>(performance.now());
+  const currentLevelRef = useRef<number>(0);
 
   // Update gain node volume in real-time
   const queueRef = useRef<string[]>([]);
@@ -49,12 +50,13 @@ export function useVoice() {
     
     let sum = 0;
     for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-    const normalized = Math.min((sum / dataArray.length) / 80, 1.0);
+    const normalized = Math.min((sum / dataArray.length) / 60, 1.0); // Higher sensitivity
     
     // Performance: Only update React state if level changed significantly or 32ms passed (~30fps UI)
     const now = performance.now();
-    if (Math.abs(normalized - audioLevel) > 0.05 || now - lastLevelUpdateRef.current > 32) {
+    if (Math.abs(normalized - currentLevelRef.current) > 0.05 || now - lastLevelUpdateRef.current > 32) {
       setAudioLevel(normalized);
+      currentLevelRef.current = normalized;
       lastLevelUpdateRef.current = now;
     }
     
@@ -114,13 +116,14 @@ export function useVoice() {
     return new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
       
-      // Try to find a German male voice
+      // Try to find a British English male voice (JARVIS style)
       const voices = window.speechSynthesis.getVoices();
-      const germanVoice = voices.find(v => v.lang.startsWith('de') && v.name.toLowerCase().includes('male')) 
-                       || voices.find(v => v.lang.startsWith('de'))
+      const fallbackVoice = voices.find(v => v.lang.startsWith('en-GB') && v.name.toLowerCase().includes('male')) 
+                       || voices.find(v => v.lang.startsWith('en-GB'))
+                       || voices.find(v => v.lang.startsWith('en'))
                        || voices[0];
       
-      if (germanVoice) utterance.voice = germanVoice;
+      if (fallbackVoice) utterance.voice = fallbackVoice;
       utterance.rate = 1.0;
       utterance.pitch = 0.9; // Slightly deeper for Rudi
       utterance.volume = volume;
@@ -167,7 +170,7 @@ export function useVoice() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text }),
-          signal: AbortSignal.timeout(3000) // Don't hang forever
+          signal: AbortSignal.timeout(10000) // 10s - higher tolerance for system load
         });
 
         if (!response.ok) throw new Error('TTS Endpoint Error');

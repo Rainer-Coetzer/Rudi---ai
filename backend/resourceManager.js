@@ -74,21 +74,52 @@ const detectVRAM_ollama = async () => {
 };
 
 /**
+ * Generic Windows VRAM detection via wmic.
+ * Works for AMD, Intel, and NVIDIA as a secondary fallback.
+ */
+const detectVRAM_wmic = () => {
+  try {
+    const output = execSync('wmic path win32_VideoController get AdapterRAM', {
+      timeout: 3000,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const values = output.trim().split('\n')
+      .map(l => parseInt(l.trim(), 10))
+      .filter(v => !isNaN(v) && v > 0);
+    
+    if (values.length > 0) {
+      const totalBytes = values.reduce((a, b) => a + b, 0);
+      const gb = totalBytes / (1024 ** 3);
+      console.log(`[RESOURCE] wmic detected VRAM: ${gb.toFixed(2)}GB`);
+      return gb;
+    }
+  } catch {
+    // wmic failed or not on Windows
+  }
+  return 0;
+};
+
+/**
  * Returns total available VRAM in GB using all available detection methods.
  * Priority: nvidia-smi > Ollama runtime > RAM-based heuristic.
  */
 export const estimateVRAM_GB = async () => {
-  // 1. Try nvidia-smi (synchronous, most reliable)
+  // 1. Try nvidia-smi (most reliable for NVIDIA)
   const nvidiaVRAM = detectVRAM_nvidia_smi();
   if (nvidiaVRAM > 0) return nvidiaVRAM;
 
-  // 2. Try Ollama runtime (only shows allocated, not total)
+  // 2. Try generic wmic (AMD, Intel, NVIDIA fallback)
+  const genericVRAM = detectVRAM_wmic();
+  if (genericVRAM > 0) return genericVRAM;
+
+  // 3. Try Ollama runtime
   const ollamaVRAM = await detectVRAM_ollama();
   if (ollamaVRAM > 0) return ollamaVRAM;
 
-  // 3. RAM heuristic (conservative: assume GPU has ~40% of free RAM headroom)
+  // 4. RAM heuristic
   const freeRAM_GB = os.freemem() / (1024 ** 3);
-  const estimated = Math.min(freeRAM_GB * 0.4, 8);
+  const estimated = Math.min(freeRAM_GB * 0.4, 4); // Capped at 4GB for generic safety
   console.warn(`[RESOURCE] VRAM detection failed — using RAM heuristic: ${estimated.toFixed(2)}GB`);
   return estimated;
 };
@@ -159,24 +190,25 @@ export const getOptimalParams = (retryAttempt = 0, vramGB = 0) => {
 
   if (retryAttempt === 0) {
     // ── Normal attempt ──
+    
+    // Calculate a "Confidence Score": High VRAM can offset Low RAM
+    const resourceScore = (freeGB * 1.5) + (vramGB * 2.0);
+    const criticalThreshold = 1.2; // roughly ~0.8GB RAM without VRAM, or less if GPU exists
 
-    if (freeGB < 2.5) {
-      // Critical RAM — full CPU, no GPU offload (prevents daemon crash)
+    if (resourceScore < criticalThreshold) {
+      // Truly critical — drop to CPU only safely
       num_gpu = 0; num_ctx = 256;
-      console.warn(`[RESOURCE] ⚠ Critical RAM (${freeGB.toFixed(2)}GB). CPU-only mode.`);
-
+      console.warn(`[RESOURCE] ⚠ Critical system load (Score: ${resourceScore.toFixed(2)}). CPU-only mode.`);
     } else {
-      // For Normal attempts, we DO NOT send num_gpu.
-      // Ollama natively detects VRAM, CUDA/Metal capabilities, and dynamically offloads
-      // exactly the right amount of layers automatically. Hardcoding this restricts performance.
-
       // Context window based on free RAM
       if (freeGB > 8)      { num_ctx = 4096; }
-      else if (freeGB > 5) { num_ctx = 2048; }
-      else if (freeGB > 3) { num_ctx = 1024; }
+      else if (freeGB > 4) { num_ctx = 2048; }
+      else if (freeGB > 1.5) { num_ctx = 1024; }
       else                 { num_ctx = 512;  }
 
-      console.log(`[RESOURCE] GPU mode: AUTO_DETECT (Ollama native offload)`);
+      // If we have VRAM, we can still offload some layers even on low RAM
+      // By NOT sending num_gpu, we let Ollama's native detection take charge.
+      console.log(`[RESOURCE] Confidence Score: ${resourceScore.toFixed(2)} | Mode: AUTO-DYNAMICS`);
       console.log(`[RESOURCE] Context window: ${num_ctx} tokens`);
     }
     temperature = 0.7;

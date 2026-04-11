@@ -1,6 +1,6 @@
 import express from 'express';
 import { Ollama } from 'ollama';
-import { getOptimalParams } from '../resourceManager.js';
+import { getOptimalParams, estimateVRAM_GB } from '../resourceManager.js';
 import { MODEL_CONFIG, listInstalledModels } from '../modelConfig.js';
 import { getRelevantContext } from '../knowledgeStore.js';
 
@@ -72,11 +72,12 @@ router.post('/', async (req, res) => {
 
     console.log(`[CHAT] ${reqTag} Selection: ${heavy ? 'Heavy' : 'Standard'} -> ${selectedModel}`);
 
+    const vramGB = await estimateVRAM_GB();
     const stream = await ollamaClient.chat({
       model: selectedModel,
       messages,
       stream: true,
-      options: getOptimalParams(0, 8), // Defaulting to 8GB VRAM estimate if unknown
+      options: getOptimalParams(0, vramGB),
       keep_alive: '10m',
     });
 

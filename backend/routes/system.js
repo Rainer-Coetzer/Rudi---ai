@@ -32,6 +32,7 @@ router.get('/health', async (req, res) => {
   res.json({
     status: 'online',
     ollama: ollamaOk ? 'ready' : 'unavailable',
+    voice: true, // Edge TTS service is active
     vram_gb: CACHED_VRAM_GB,
     installed_models: INSTALLED_MODELS,
     timestamp: Date.now()

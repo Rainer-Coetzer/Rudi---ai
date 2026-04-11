@@ -39,6 +39,11 @@ const TOOL_AUTONOMY_MAP: Record<string, AutonomyLevel> = {
   upcoming_events:    'assist',
   summarize:          'assist',
   get_logs:           'assist',
+  list_memories:      'assist',
+  list_skills:        'assist',
+  load_skill:         'assist',
+  list_meeting_notes: 'assist',
+  self_changelog:     'assist',
 
   // Moderate tools — require ASSIST or AUTONOMOUS
   create_file:        'assist',
@@ -53,6 +58,10 @@ const TOOL_AUTONOMY_MAP: Record<string, AutonomyLevel> = {
   remove_event:       'assist',
   set_ui_layout:      'assist',
   package_app:        'assist',
+  record_memory:      'assist',
+  save_skill:         'assist',
+  record_meeting_note: 'assist',
+  undo_action:        'assist',
 
   // Elevated tools — require AUTONOMOUS
   run_terminal:       'autonomous',
@@ -61,6 +70,8 @@ const TOOL_AUTONOMY_MAP: Record<string, AutonomyLevel> = {
   delete_file:        'autonomous',
   self_inspect:       'autonomous',
   self_improve:       'autonomous',
+  delete_meeting_note: 'autonomous',
+  delete_memory:      'autonomous',
 
   // Dangerous — always require explicit confirmation regardless of mode
   git_push:           'autonomous',

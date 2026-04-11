@@ -38,7 +38,7 @@ Rudi is built for users who demand privacy without compromising on power. Unlike
 2. **Clone & Setup**:
    ```bash
    git clone https://github.com/Rainer-Coetzer/rudi-agent.git
-   cd rudi-agent
+   cd rudi-agent/rudi-app
    npm install
    ```
 3. **Run in Development**:
@@ -54,7 +54,7 @@ Rudi is built for users who demand privacy without compromising on power. Unlike
 
 ## 📁 Project Structure
 ```text
-rudi-agent/
+rudi-app/
 ├── backend/            # Express services for Ingestion/TTS
 ├── electron/           # Main process logic & Tool Handlers
 ├── src/
@@ -81,32 +81,14 @@ rudi-agent/
 - [ ] **Global Hotkeys**: System-wide HUD for invisible control.
 - [ ] **Plugin Ecosystem**: Third-party tool extensions for productivity apps.
 
-## 🤝 Community & Contributing
-Rudi is an open-source project designed for enthusiasts of local AI, autonomy, and premium UI. We welcome contributions that align with our core pillars of **Privacy**, **Proactivity**, and **Refined Excellence**.
-
-### 🛠️ Getting Started
-1. Review the [Contributing Guidelines](CONTRIBUTING.md) for our fork-and-PR workflow.
-2. Adhere to the [Code of Conduct](CODE_OF_CONDUCT.md) in all interactions.
-3. Check the [Triage Labels](#-label-legend) to find tasks matching your expertise.
-
-### 🏷️ Label Legend
-- `good first issue`: Logical entry points for new contributors (see below).
-- `triage`: New issues/PRs awaiting maintainer analysis.
-- `high priority`: Critical stability or logic breaches.
-- `enhancement`: New capabilities for the Rudi core.
-- `documentation`: Refinements to the project's knowledge base.
-
-### 🌱 Good First Issues
-- **Frontend**: Implement a "Pulse" animation for the microphone state when active.
-- **Backend**: Add unit tests for the regex logic in `personality.ts`.
-- **Logic**: Expand the `system_info` tool to report local network status.
-- **Localization**: Help us translate Rudi's persona for international Directors.
+## 🤝 Contributing
+Contributions are welcome. Please ensure that all new UI components adhere to the established "Premium Glass" design system and that any new native tools include appropriate safety-validation logic.
 
 ## 📄 License
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License. See `LICENSE` for details.
 
 ## 👤 Author
 Developed and Maintained by **Rainer & Rudi Contributors**.
 
 ---
-*"The community is synchronizing, Sir."*
+*"The system is optimal, Sir."*

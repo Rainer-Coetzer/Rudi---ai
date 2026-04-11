@@ -198,6 +198,10 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
   
   const ringRef = useRef<THREE.Points>(null);
   const spinnerRef = useRef<THREE.Points>(null);
+  const amplitudeRef = useRef(amplitude);
+
+  // Sync prop to ref on every render to ensure useFrame sees the latest value
+  amplitudeRef.current = amplitude;
 
   const particlesCount = 8000;
   const positions = useMemo(() => {
@@ -271,7 +275,7 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
       );
 
       materialRef.current.uniforms.uAmplitude.value = THREE.MathUtils.lerp(
-        materialRef.current.uniforms.uAmplitude.value, amplitude, 0.15
+        materialRef.current.uniforms.uAmplitude.value, amplitudeRef.current, 0.15
       );
 
       materialRef.current.uniforms.uHover.value = THREE.MathUtils.lerp(
@@ -301,12 +305,12 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
 
     // Animate Overlays
     if (ringRef.current) {
-      ringRef.current.scale.setScalar(1.2 + Math.sin(time * 1.5) * 0.04 + amplitude * 0.2);
+      ringRef.current.scale.setScalar(1.2 + Math.sin(time * 1.5) * 0.04 + amplitudeRef.current * 0.2);
       ringRef.current.rotation.z += 0.002;
       (ringRef.current.material as THREE.PointsMaterial).opacity =
         THREE.MathUtils.lerp(
           (ringRef.current.material as THREE.PointsMaterial).opacity,
-          state === RudiState.Listening ? 0.4 + amplitude : 0, 0.05
+          state === RudiState.Listening ? 0.4 + amplitudeRef.current : 0, 0.05
         );
     }
 
