@@ -1,8 +1,10 @@
-import { BrowserWindow, Notification, app, ipcMain, screen, shell } from "electron";
+import { BrowserWindow, Notification, app, globalShortcut, ipcMain, screen, shell } from "electron";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import child_process from "child_process";
 import fs, { existsSync, readFileSync } from "fs";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import fs$1 from "fs/promises";
 //#region \0rolldown/runtime.js
 var __create = Object.create;
@@ -12382,6 +12384,213 @@ function generateDailySummary() {
 	return summary;
 }
 //#endregion
+//#region electron/handlers/contextInjector.ts
+/**
+* Project Context Injector
+* Detects the active project based on the focused window and injects metadata into the prompt.
+*/
+async function getProjectContext() {
+	try {
+		const active = await (0, import_active_win.default)();
+		if (!active || !active.owner.path) return "";
+		const root = process.cwd();
+		const pkgPath = path.join(root, "package.json");
+		const readmePath = path.join(root, "README.md");
+		let context = `\n\n[PROJECT_CONTEXT]\nRoot: ${root}\n`;
+		if (fs.existsSync(pkgPath)) {
+			const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+			context += `Name: ${pkg.name}\nVersion: ${pkg.version}\nScripts: ${Object.keys(pkg.scripts || {}).join(", ")}\n`;
+		}
+		if (fs.existsSync(readmePath)) {
+			const readme = fs.readFileSync(readmePath, "utf8").substring(0, 500);
+			context += `Summary: ${readme}...\n`;
+		}
+		return context;
+	} catch (err) {
+		return "";
+	}
+}
+//#endregion
+//#region electron/handlers/ToolsManager.ts
+var ToolsManager = class ToolsManager {
+	constructor() {
+		this.plugins = /* @__PURE__ */ new Map();
+		const __filename = fileURLToPath(import.meta.url);
+		path.dirname(__filename);
+		this.pluginsDir = path.resolve(process.cwd(), "electron", "plugins");
+		if (!fs.existsSync(this.pluginsDir)) fs.mkdirSync(this.pluginsDir, { recursive: true });
+	}
+	static getInstance() {
+		if (!ToolsManager.instance) ToolsManager.instance = new ToolsManager();
+		return ToolsManager.instance;
+	}
+	/**
+	* Scans the plugins directory and subdirectories for tool implementations.
+	*/
+	async scanPlugins() {
+		console.log(`[TOOLS] Scanning for plugins in: ${this.pluginsDir}`);
+		const files = this.getAllFiles(this.pluginsDir);
+		for (const file of files) if (file.endsWith(".js") || file.endsWith(".mjs")) await this.loadJsPlugin(file);
+		else if (file.endsWith(".py")) this.loadPyPlugin(file);
+		console.log(`[TOOLS] Registered ${this.plugins.size} tools.`);
+	}
+	getAllFiles(dirPath, arrayOfFiles = []) {
+		fs.readdirSync(dirPath).forEach((file) => {
+			if (fs.statSync(path.join(dirPath, file)).isDirectory()) arrayOfFiles = this.getAllFiles(path.join(dirPath, file), arrayOfFiles);
+			else arrayOfFiles.push(path.join(dirPath, file));
+		});
+		return arrayOfFiles;
+	}
+	async loadJsPlugin(filePath) {
+		try {
+			const plugin = (await import(pathToFileURL(filePath).href)).default;
+			if (plugin && plugin.name && typeof plugin.execute === "function") {
+				this.plugins.set(plugin.name, plugin);
+				console.log(`[TOOLS] Loaded JS Plugin: ${plugin.name}`);
+			}
+		} catch (err) {
+			console.error(`[TOOLS] Failed to load plugin ${filePath}:`, err.message);
+		}
+	}
+	loadPyPlugin(filePath) {
+		const name = path.basename(filePath, ".py");
+		console.log(`[TOOLS] Registered Python Plugin (Wrapper): ${name}`);
+		this.plugins.set(name, {
+			name,
+			description: `Python script: ${name}`,
+			parameters: {
+				type: "object",
+				properties: {}
+			},
+			execute: async (params) => {
+				return this.executePythonScript(filePath, params);
+			}
+		});
+	}
+	async executePythonScript(filePath, params) {
+		const { spawn } = await import("child_process");
+		return new Promise((resolve) => {
+			const process = spawn("python", [filePath, JSON.stringify(params)]);
+			let stdout = "";
+			let stderr = "";
+			process.stdout.on("data", (data) => stdout += data.toString());
+			process.stderr.on("data", (data) => stderr += data.toString());
+			process.on("close", (code) => {
+				if (code === 0) resolve({
+					success: true,
+					result: stdout
+				});
+				else resolve({
+					success: false,
+					result: stderr || `Exit code ${code}`
+				});
+			});
+		});
+	}
+	getTool(name) {
+		return this.plugins.get(name);
+	}
+	getAllSchemas() {
+		return Array.from(this.plugins.values()).map(({ name, description, parameters, permission, autonomy }) => ({
+			name,
+			description,
+			parameters,
+			permission,
+			autonomy
+		}));
+	}
+	async executeTool(name, params) {
+		const plugin = this.plugins.get(name);
+		if (!plugin) return {
+			success: false,
+			result: `Tool "${name}" not found.`
+		};
+		try {
+			return await plugin.execute(params);
+		} catch (err) {
+			return {
+				success: false,
+				result: `Execution error: ${err.message}`
+			};
+		}
+	}
+};
+//#endregion
+//#region electron/mcpManager.ts
+var McpManager = class McpManager {
+	constructor() {
+		this.clients = /* @__PURE__ */ new Map();
+		this.configs = [
+			{
+				name: "github",
+				command: "npx",
+				args: ["-y", "@modelcontextprotocol/server-github"]
+			},
+			{
+				name: "google-drive",
+				command: "npx",
+				args: ["-y", "@modelcontextprotocol/server-google-drive"]
+			},
+			{
+				name: "slack",
+				command: "npx",
+				args: ["-y", "@modelcontextprotocol/server-slack"]
+			}
+		];
+	}
+	static getInstance() {
+		if (!McpManager.instance) McpManager.instance = new McpManager();
+		return McpManager.instance;
+	}
+	async initialize() {
+		console.log("[MCP] Initializing external server connections...");
+		for (const config of this.configs) try {
+			await this.connectToServer(config);
+		} catch (err) {
+			console.error(`[MCP] Failed to connect to ${config.name}:`, err.message);
+			writeLog("errors", "MCP", `Connection to ${config.name} failed: ${err.message}`);
+		}
+	}
+	async connectToServer(config) {
+		const transport = new StdioClientTransport({
+			command: config.command,
+			args: config.args
+		});
+		const client = new Client({
+			name: "rudi-agent-host",
+			version: "1.0.0"
+		}, { capabilities: { tools: {} } });
+		await client.connect(transport);
+		await client.initialize();
+		this.clients.set(config.name, client);
+		console.log(`[MCP] Connected to server: ${config.name}`);
+	}
+	async listAllTools() {
+		let allTools = [];
+		for (const [name, client] of this.clients) try {
+			const taggedTools = ((await client.listTools()).tools || []).map((t) => ({
+				...t,
+				mcpServer: name
+			}));
+			allTools = [...allTools, ...taggedTools];
+		} catch (err) {
+			console.error(`[MCP] Error listing tools for ${name}:`, err.message);
+		}
+		return allTools;
+	}
+	async callTool(serverName, toolName, args) {
+		const client = this.clients.get(serverName);
+		if (!client) throw new Error(`MCP Server "${serverName}" not connected.`);
+		return await client.callTool({
+			name: toolName,
+			arguments: args
+		});
+	}
+	isMcpTool(name) {
+		return false;
+	}
+};
+//#endregion
 //#region electron/undo.ts
 /**
 * Rudi Undo System
@@ -12986,7 +13195,10 @@ async function handleToolExecution(name, params) {
 //#region electron/main.ts
 var __filename = fileURLToPath(import.meta.url);
 var __dirname$1 = path.dirname(__filename);
+var toolsManager = ToolsManager.getInstance();
+var mcpManager = McpManager.getInstance();
 var mainWindow = null;
+var ghostWindow = null;
 var ollamaProcess = null;
 var currentMode = "idle";
 app.commandLine.appendSwitch("disable-features", "NetworkServiceInProcess");
@@ -13058,6 +13270,34 @@ function updateWindowLayout(mode) {
 			break;
 	}
 }
+function createGhostWindow() {
+	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+	ghostWindow = new BrowserWindow({
+		width: 600,
+		height: 120,
+		x: Math.floor((width - 600) / 2),
+		y: Math.floor(height * .2),
+		frame: false,
+		transparent: true,
+		alwaysOnTop: true,
+		show: false,
+		skipTaskbar: true,
+		webPreferences: { preload: path.join(__dirname$1, "preload.js") }
+	});
+	if (process.env.VITE_DEV_SERVER_URL) ghostWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/ghost`);
+	else ghostWindow.loadURL(`file://${path.join(__dirname$1, "../dist/index.html")}#/ghost`);
+	ghostWindow.on("blur", () => {
+		ghostWindow?.hide();
+	});
+}
+function toggleGhostMode() {
+	if (!ghostWindow) createGhostWindow();
+	if (ghostWindow?.isVisible()) ghostWindow.hide();
+	else {
+		ghostWindow?.show();
+		ghostWindow?.focus();
+	}
+}
 async function spawnOllama() {
 	try {
 		const res = await fetch("http://127.0.0.1:11434/api/tags");
@@ -13099,9 +13339,15 @@ async function spawnOllama() {
 		});
 	}, 2e3);
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
 	createWindow();
 	spawnOllama();
+	await toolsManager.scanPlugins();
+	await mcpManager.initialize();
+	createGhostWindow();
+	globalShortcut.register("CommandOrControl+Alt+R", () => {
+		toggleGhostMode();
+	});
 	startReminderService();
 	app.on("activate", () => {
 		if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -13124,6 +13370,7 @@ ipcMain.on("window-maximize", () => {
 ipcMain.on("window-close", () => mainWindow?.close());
 ipcMain.handle("window-is-maximized", () => mainWindow?.isMaximized() ?? false);
 ipcMain.handle("execute-tool", async (_event, name, params) => {
+	if (toolsManager.getTool(name)) return await toolsManager.executeTool(name, params);
 	return await handleToolExecution(name, params);
 });
 ipcMain.handle("append-log", (_event, category, source, message) => {
@@ -13131,5 +13378,22 @@ ipcMain.handle("append-log", (_event, category, source, message) => {
 });
 ipcMain.handle("get-logs", (_event, category) => {
 	return readLog(category);
+});
+ipcMain.handle("get-tool-schemas", async () => {
+	const internalTools = toolsManager.getAllSchemas();
+	const formattedMcp = (await mcpManager.listAllTools()).map((t) => ({
+		name: t.name,
+		description: `[MCP: ${t.mcpServer}] ${t.description}`,
+		parameters: t.inputSchema,
+		mcpServer: t.mcpServer,
+		isMcp: true
+	}));
+	return [...internalTools, ...formattedMcp];
+});
+ipcMain.handle("execute-mcp-tool", async (_event, server, tool, args) => {
+	return await mcpManager.callTool(server, tool, args);
+});
+ipcMain.handle("get-project-context", async () => {
+	return await getProjectContext();
 });
 //#endregion

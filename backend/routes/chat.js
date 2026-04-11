@@ -28,7 +28,15 @@ function needsHeavyModel(message) {
 }
 
 router.post('/', async (req, res) => {
-  const { message, history = [], attachments = [], autonomyLevel = 'assist', requestId, memories = [] } = req.body;
+  const { 
+    message, 
+    history = [], 
+    attachments = [], 
+    autonomyLevel = 'assist', 
+    requestId, 
+    memories = [], 
+    projectContext = '' 
+  } = req.body;
   const reqTag = requestId ? `[${requestId.slice(0, 8)}]` : `[${Date.now().toString(36)}]`;
 
   console.log(`\n[CHAT] ${reqTag} ── New Request ─────────────────────────────────`);
@@ -60,7 +68,7 @@ router.post('/', async (req, res) => {
   }[autonomyLevel] || '';
 
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT + modeInstructions + knowledgeContext + memoryContext },
+    { role: 'system', content: SYSTEM_PROMPT + modeInstructions + knowledgeContext + memoryContext + "\n\n" + projectContext },
     ...history.slice(-15),
     { role: 'user', content: refined },
   ];

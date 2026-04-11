@@ -310,6 +310,7 @@ export function useRudi() {
     abortControllerRef.current = controller;
 
     let memories: string[] = [];
+    let projectContext = '';
     if (window.electronAPI) {
       try {
         const memRes = await window.electronAPI.executeTool('list_memories', {});
@@ -317,8 +318,10 @@ export function useRudi() {
            const rawMems = JSON.parse(memRes.result);
            memories = rawMems.slice(-5).map((m: any) => `[RECALL: ${m.type.toUpperCase()}] ${m.content}`);
         }
+        
+        projectContext = await window.electronAPI.getProjectContext?.() || '';
       } catch (err) {
-        console.warn('Memory recall failed:', err);
+        console.warn('Metadata recall failed:', err);
       }
     }
 
@@ -332,7 +335,8 @@ export function useRudi() {
           attachments,
           history: conversationHistory.current.slice(-UI_CONFIG.CONTEXT_WINDOW),
           autonomyLevel,
-          memories
+          memories,
+          projectContext
         })
       });
 

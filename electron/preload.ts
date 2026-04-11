@@ -11,6 +11,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   appendLog: (category: string, source: string, message: string) =>
     ipcRenderer.invoke('append-log', category, source, message),
   getLogs: (category: string) => ipcRenderer.invoke('get-logs', category),
+  getToolSchemas: () => ipcRenderer.invoke('get-tool-schemas'),
+  executeMcpTool: (server: string, tool: string, args: any) => 
+    ipcRenderer.invoke('execute-mcp-tool', server, tool, args),
+  getProjectContext: () => ipcRenderer.invoke('get-project-context'),
+  getProjectContext: () => ipcRenderer.invoke('get-project-context'),
 
   // ── Window Controls ──────────────────────────────────────────────────────
   windowMinimize:   () => ipcRenderer.send('window-minimize'),

@@ -14,11 +14,20 @@ import {
 } from './productivity';
 import { selfInspect, selfImprove, selfChangelog } from './selfImprove';
 import { recordMeetingNote, listMeetingNotes, deleteMeetingNote } from './meetingNotes';
+import { globalShortcut } from 'electron';
+import { getProjectContext } from './handlers/contextInjector';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+import { ToolsManager } from './handlers/ToolsManager';
+const toolsManager = ToolsManager.getInstance();
+
+import { McpManager } from './mcpManager';
+const mcpManager = McpManager.getInstance();
+
 let mainWindow: BrowserWindow | null = null;
+let ghostWindow: BrowserWindow | null = null;
 let ollamaProcess: child_process.ChildProcess | null = null;
 let lastActiveApp = '';
 let currentMode = 'idle';
@@ -118,6 +127,49 @@ function updateWindowLayout(mode: string) {
   }
 }
 
+function createGhostWindow() {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+
+  ghostWindow = new BrowserWindow({
+    width: 600,
+    height: 120,
+    x: Math.floor((width - 600) / 2),
+    y: Math.floor(height * 0.2), // Upper 20% of screen
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    show: false,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    ghostWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/ghost`);
+  } else {
+    ghostWindow.loadURL(`file://${path.join(__dirname, '../dist/index.html')}#/ghost`);
+  }
+
+  ghostWindow.on('blur', () => {
+    ghostWindow?.hide();
+  });
+}
+
+function toggleGhostMode() {
+  if (!ghostWindow) {
+    createGhostWindow();
+  }
+
+  if (ghostWindow?.isVisible()) {
+    ghostWindow.hide();
+  } else {
+    ghostWindow?.show();
+    ghostWindow?.focus();
+  }
+}
+
 async function spawnOllama() {
   // First check if Ollama is already serving (e.g. background task or our Express backend)
   try {
@@ -170,9 +222,23 @@ async function spawnOllama() {
   }, 2000);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow();
   spawnOllama();
+  
+  // Initialize plugin system
+  await toolsManager.scanPlugins();
+  
+  // Initialize MCP external servers
+  await mcpManager.initialize();
+  
+  createGhostWindow();
+  
+  // Register Ghost Mode Hotkey
+  globalShortcut.register('CommandOrControl+Alt+R', () => {
+    toggleGhostMode();
+  });
+
   startReminderService();
 
   app.on('activate', () => {
@@ -203,6 +269,13 @@ ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized() ?? false);
 import { handleToolExecution } from './handlers/toolHandler';
 
 ipcMain.handle('execute-tool', async (_event, name: string, params: any) => {
+  // Try dynamic plugins first
+  const tool = toolsManager.getTool(name);
+  if (tool) {
+    return await toolsManager.executeTool(name, params);
+  }
+  
+  // Fallback to legacy hardcoded tools
   return await handleToolExecution(name, params);
 });
 
@@ -212,4 +285,28 @@ ipcMain.handle('append-log', (_event, category: LogCategory, source: string, mes
 
 ipcMain.handle('get-logs', (_event, category: LogCategory) => {
   return readLog(category);
+});
+
+ipcMain.handle('get-tool-schemas', async () => {
+  const internalTools = toolsManager.getAllSchemas();
+  const mcpTools = await mcpManager.listAllTools();
+  
+  // Convert MCP generic tools to Rudi tool schema
+  const formattedMcp = mcpTools.map(t => ({
+    name: t.name,
+    description: `[MCP: ${t.mcpServer}] ${t.description}`,
+    parameters: t.inputSchema,
+    mcpServer: t.mcpServer,
+    isMcp: true
+  }));
+
+  return [...internalTools, ...formattedMcp];
+});
+
+ipcMain.handle('execute-mcp-tool', async (_event, server: string, tool: string, args: any) => {
+  return await mcpManager.callTool(server, tool, args);
+});
+
+ipcMain.handle('get-project-context', async () => {
+  return await getProjectContext();
 });
