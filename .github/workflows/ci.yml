@@ -1,0 +1,30 @@
+name: 🎙️ Rudi Logic Audit
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 🔍 Checking out protocols
+      uses: actions/checkout@v4
+
+    - name: 📦 Setting up Node environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+
+    - name: 🛠️ Installing dependencies
+      run: npm ci
+
+    - name: 🧹 Linting logic (ESLint)
+      run: npm run lint
+
+    - name: 🏗️ Verifying build stability
+      run: npm run build

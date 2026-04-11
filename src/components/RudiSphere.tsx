@@ -334,6 +334,7 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
             count={particlesCount}
             array={positions}
             itemSize={3}
+            args={[positions, 3]}
           />
         </bufferGeometry>
         <shaderMaterial
@@ -358,7 +359,7 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
       {/* Listening Ring Particles */}
       <points ref={ringRef} visible={true}>
         <bufferGeometry>
-          <bufferAttribute attach="attributes-position" count={ringParticlesCount} array={ringPositions} itemSize={3} />
+          <bufferAttribute attach="attributes-position" count={ringParticlesCount} array={ringPositions} itemSize={3} args={[ringPositions, 3]} />
         </bufferGeometry>
         <pointsMaterial size={0.015} color="#4ade80" transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} />
       </points>
@@ -366,7 +367,7 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
       {/* Thinking Spinner Particles */}
       <points ref={spinnerRef} visible={true}>
         <bufferGeometry>
-          <bufferAttribute attach="attributes-position" count={spinnerParticlesCount} array={spinnerPositions} itemSize={3} />
+          <bufferAttribute attach="attributes-position" count={spinnerParticlesCount} array={spinnerPositions} itemSize={3} args={[spinnerPositions, 3]} />
         </bufferGeometry>
         <pointsMaterial size={0.02} color="#facc15" transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} />
       </points>
