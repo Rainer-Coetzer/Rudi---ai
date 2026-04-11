@@ -1,0 +1,249 @@
+import { useState, useRef, useCallback, useEffect } from 'react';
+
+export interface VoiceState {
+  voiceEnabled: boolean;
+  isSpeaking: boolean;
+  audioLevel: number;
+  volume: number;
+}
+
+const TTS_ENDPOINT = 'http://localhost:3001/api/tts';
+
+export function useVoice() {
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [volume, setVolume] = useState(0.85);
+
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  
+  // Performance: Persistent buffer to avoid GC pressure in the 60fps loop
+  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const lastLevelUpdateRef = useRef<number>(0);
+
+  // Update gain node volume in real-time
+  const queueRef = useRef<string[]>([]);
+  const isProcessingRef = useRef(false);
+
+  function getAudioContext() {
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    return audioContextRef.current;
+  };
+
+  const analyzePlayback = () => {
+    if (!analyserRef.current) return;
+    
+    // Initialize or reuse buffer
+    if (!dataArrayRef.current) {
+      dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
+    }
+    const dataArray = dataArrayRef.current;
+    
+    analyserRef.current.getByteFrequencyData(dataArray as any);
+    
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+    const normalized = Math.min((sum / dataArray.length) / 80, 1.0);
+    
+    // Performance: Only update React state if level changed significantly or 32ms passed (~30fps UI)
+    const now = performance.now();
+    if (Math.abs(normalized - audioLevel) > 0.05 || now - lastLevelUpdateRef.current > 32) {
+      setAudioLevel(normalized);
+      lastLevelUpdateRef.current = now;
+    }
+    
+    animFrameRef.current = requestAnimationFrame(analyzePlayback);
+  };
+
+  const stopSpeaking = useCallback(() => {
+    if (sourceNodeRef.current) {
+      try { sourceNodeRef.current.stop(); } catch (_) {}
+      sourceNodeRef.current = null;
+    }
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    setIsSpeaking(false);
+    setAudioLevel(0);
+  }, []);
+
+  const playAudioBuffer = useCallback(async (arrayBuffer: ArrayBuffer): Promise<void> => {
+    return new Promise(async (resolve) => {
+      const ctx = getAudioContext();
+
+      if (ctx.state === 'suspended') await ctx.resume();
+
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+      // Setup analysis chain: source → analyser → gain → destination
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.75;
+      analyserRef.current = analyser;
+
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = volume;
+      gainNodeRef.current = gainNode;
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(analyser);
+      analyser.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      sourceNodeRef.current = source;
+
+      source.onended = () => {
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+        setIsSpeaking(false);
+        setAudioLevel(0);
+        sourceNodeRef.current = null;
+        resolve();
+      };
+
+      source.start(0);
+      setIsSpeaking(true);
+      analyzePlayback();
+    });
+  }, [volume]);
+
+  const speakTextSystem = useCallback((text: string) => {
+    return new Promise<void>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      
+      // Try to find a German male voice
+      const voices = window.speechSynthesis.getVoices();
+      const germanVoice = voices.find(v => v.lang.startsWith('de') && v.name.toLowerCase().includes('male')) 
+                       || voices.find(v => v.lang.startsWith('de'))
+                       || voices[0];
+      
+      if (germanVoice) utterance.voice = germanVoice;
+      utterance.rate = 1.0;
+      utterance.pitch = 0.9; // Slightly deeper for Rudi
+      utterance.volume = volume;
+
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+        // Basic pulsing animation simulation since we can't analyze system speech directly
+        const interval = setInterval(() => {
+          setAudioLevel(0.2 + Math.random() * 0.4);
+        }, 100);
+        (utterance as any)._pulseInterval = interval;
+      };
+
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        setAudioLevel(0);
+        clearInterval((utterance as any)._pulseInterval);
+        resolve();
+      };
+
+      utterance.onerror = () => {
+        setIsSpeaking(false);
+        setAudioLevel(0);
+        clearInterval((utterance as any)._pulseInterval);
+        resolve();
+      };
+
+      window.speechSynthesis.speak(utterance);
+    });
+  }, [volume]);
+
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current || queueRef.current.length === 0) return;
+    isProcessingRef.current = true;
+
+    while (queueRef.current.length > 0) {
+      const text = queueRef.current.shift()!;
+
+      try {
+        // Small pre-speech delay to simulate thinking
+        await new Promise(r => setTimeout(r, 250));
+
+        const response = await fetch(TTS_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+          signal: AbortSignal.timeout(3000) // Don't hang forever
+        });
+
+        if (!response.ok) throw new Error('TTS Endpoint Error');
+
+        const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength === 0) throw new Error('Empty Buffer');
+
+        await playAudioBuffer(arrayBuffer);
+
+      } catch (err: any) {
+        console.warn('[VOICE] Neural TTS unavailable, falling back to System Speech:', err?.message);
+        await speakTextSystem(text);
+      }
+    }
+
+    isProcessingRef.current = false;
+  }, [playAudioBuffer, speakTextSystem]);
+
+  const speakText = useCallback((text: string) => {
+    if (!voiceEnabled || !text.trim()) return;
+
+    // Aggressively strip markdown, code blocks, and potential log-heavy patterns
+    let cleaned = text
+      .replace(/\[\[TOOL:[^\]]+\]\]/g, '') // Hide internal tool calls
+      .replace(/```[\s\S]*?```/g, '')      // Strip code blocks entirely
+      .replace(/!\[.*?\]\(.*?\)/g, '')    // Strip images
+      .replace(/https?:\/\/\S+/g, '')      // Strip URLs
+      .replace(/[*_`#]/g, '')             // Strip markdown symbols
+      .replace(/>\s*/g, '')               // Strip blockquotes
+      .replace(/(\n\s*){2,}/g, '\n')      // Collapse multiple newlines
+      .trim();
+
+    // Heuristically detect and strip raw terminal/log output that might have escaped code blocks
+    cleaned = cleaned
+      .replace(/\[\d{2}:\d{2}:\d{2}\]/g, '') 
+      .replace(/[a-zA-Z]:\\[\\\w\s.-]+/g, '')
+      .replace(/\/\w+\/[\/\w\s.-]+/g, '');
+
+    if (!cleaned) return;
+
+    // Truncate spoken output to focus on the core message
+    if (cleaned.length > 400) {
+      cleaned = cleaned.substring(0, 397) + '...';
+    }
+
+    queueRef.current.push(cleaned);
+    processQueue();
+  }, [voiceEnabled, processQueue]);
+
+  const stopAllSpeech = useCallback(() => {
+    queueRef.current = [];
+    isProcessingRef.current = false;
+    stopSpeaking();
+  }, [stopSpeaking]);
+  
+  // Update gain node volume in real-time
+  useEffect(() => {
+    if (gainNodeRef.current) {
+      const ctx = getAudioContext();
+      gainNodeRef.current.gain.setTargetAtTime(volume, ctx.currentTime, 0.05);
+    }
+  }, [volume]);
+
+  // Stop all speech if voice is disabled
+  useEffect(() => {
+    if (!voiceEnabled && isSpeaking) {
+      stopAllSpeech();
+    }
+  }, [voiceEnabled, isSpeaking, stopAllSpeech]);
+
+  return {
+    voiceEnabled, setVoiceEnabled,
+    isSpeaking,
+    audioLevel,
+    volume, setVolume,
+    speakText,
+    stopAllSpeech
+  };
+}
