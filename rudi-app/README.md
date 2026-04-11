@@ -37,7 +37,7 @@ Rudi is built for users who demand privacy without compromising on power. Unlike
    - Node.js (v20+ recommended).
 2. **Clone & Setup**:
    ```bash
-   git clone https://github.com/your-username/rudi-agent.git
+   git clone https://github.com/Rainer-Coetzer/rudi-agent.git
    cd rudi-agent/rudi-app
    npm install
    ```
