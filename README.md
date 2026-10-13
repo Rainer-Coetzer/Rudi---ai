@@ -60,7 +60,7 @@ Rudi is built for users who demand privacy without compromising on power. Unlike
 
 ## 📁 Project Structure
 ```text
-rudi-ai/
+rudi-agent/
 ├── backend/            # Express services (Neural TTS, Knowledge Ingestion)
 │   ├── routes/         # Chat, Voice, Knowledge, and System status APIs
 │   └── resourceManager # Hardware-agnostic (AMD/NVIDIA) VRAM detection
