@@ -1,54 +1,22 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import electron from 'vite-plugin-electron';
-import renderer from 'vite-plugin-electron-renderer';
 
 export default defineConfig({
   plugins: [
-    react(), 
+    react(),
     tailwindcss(),
-    electron([
-      {
-        entry: 'electron/main.ts',
-        vite: {
-          build: {
-            rollupOptions: {
-              external: ['mock-aws-s3', 'aws-sdk', 'nock'],
-            },
-          },
-        },
-      },
-      {
-        entry: 'electron/preload.ts',
-        onstart(options) {
-          options.reload()
-        },
-        vite: {
-          build: {
-            rollupOptions: {
-              external: ['mock-aws-s3', 'aws-sdk', 'nock'],
-              output: {
-                format: 'cjs',
-                entryFileNames: 'preload.js',
-              },
-            },
-          },
-        },
-      },
-    ]),
-    renderer(),
   ],
+  // Tauri expects a fixed dev port and its own console output.
+  clearScreen: false,
   server: {
-    port: 5173
+    port: 5173,
+    strictPort: true,
+    watch: { ignored: ['**/src-tauri/**', '**/sidecar/**'] },
   },
   build: {
     rollupOptions: {
-      external: [
-        'mock-aws-s3',
-        'aws-sdk',
-        'nock',
-      ],
+      external: ['mock-aws-s3', 'aws-sdk', 'nock'],
     },
     commonjsOptions: {
       ignoreDynamicRequires: true,

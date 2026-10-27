@@ -1,37 +1,54 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-export function useAudioAnalyzer(isActive: boolean) {
+export function useAudioAnalyzer() {
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastAudioProcessTime = useRef<number>(0);
+  const freqBufferRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const lastLevelRef = useRef<number>(0);
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioCtx = window.AudioContext
+        ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      audioContextRef.current = new AudioCtx!();
     }
     return audioContextRef.current;
   }, []);
 
   const analyzeAudio = useCallback(() => {
-    if (!analyserRef.current) return;
-    const now = performance.now();
-    // Cache level updates to ~30fps for UI performance
-    if (now - lastAudioProcessTime.current > 33) {
-      const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-      analyserRef.current.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-      setMicrophoneLevel(Math.min((sum / dataArray.length) / 128, 1.0));
-      lastAudioProcessTime.current = now;
-    }
-    animationFrameRef.current = requestAnimationFrame(analyzeAudio);
+    const tick = () => {
+      if (!analyserRef.current) return;
+      const now = performance.now();
+      // Cache level updates to ~30fps for UI performance
+      if (now - lastAudioProcessTime.current > 33) {
+        const bins = analyserRef.current.frequencyBinCount;
+        if (!freqBufferRef.current || freqBufferRef.current.length !== bins) {
+          freqBufferRef.current = new Uint8Array(bins);
+        }
+        const dataArray = freqBufferRef.current;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        const level = Math.min((sum / dataArray.length) / 128, 1.0);
+        // Skip re-renders for imperceptible changes
+        if (Math.abs(level - lastLevelRef.current) > 0.01 || (level === 0) !== (lastLevelRef.current === 0)) {
+          lastLevelRef.current = level;
+          setMicrophoneLevel(level);
+        }
+        lastAudioProcessTime.current = now;
+      }
+      animationFrameRef.current = requestAnimationFrame(tick);
+    };
+    tick();
   }, []);
 
+  // The caller decides when to listen; this used to bail out unless already listening,
+  // which meant it could never start.
   const startAnalyzer = useCallback(async () => {
-    if (!isActive) return false;
     try {
       const ctx = getAudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
@@ -63,6 +80,7 @@ export function useAudioAnalyzer(isActive: boolean) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    lastLevelRef.current = 0;
     setMicrophoneLevel(0);
   }, []);
 

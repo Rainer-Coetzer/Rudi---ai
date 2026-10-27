@@ -3,8 +3,21 @@ import { UniversalEdgeTTS, listVoicesUniversal } from 'edge-tts-universal';
 
 const router = express.Router();
 
-const TTS_VOICE = 'en-GB-RyanNeural';
-const TTS_FALLBACK_VOICE = 'en-GB-SoniaNeural';
+// Rudi speaks English with a German accent: Microsoft's multilingual German voices
+// read English text with native German pronunciation habits.
+// Override with RUDI_TTS_VOICE (any Edge neural voice short name, see GET /api/voices).
+const TTS_VOICE = process.env.RUDI_TTS_VOICE || 'de-DE-FlorianMultilingualNeural';
+const TTS_FALLBACK_VOICE = process.env.RUDI_TTS_FALLBACK_VOICE || 'en-GB-RyanNeural';
+// Slightly slower and lower than default for a calmer, butler-like delivery.
+const TTS_PROSODY = {
+  rate: process.env.RUDI_TTS_RATE || '-5%',
+  pitch: process.env.RUDI_TTS_PITCH || '-2Hz',
+};
+
+async function synthesize(text, voice) {
+  const result = await new UniversalEdgeTTS(text, voice, TTS_PROSODY).synthesize();
+  return Buffer.from(await result.audio.arrayBuffer());
+}
 
 /**
  * Filter text for speech by stripping out goals, steps, tools, and JSON.
@@ -40,22 +53,17 @@ router.post('/tts', async (req, res) => {
 
   try {
     const start = Date.now();
-    const tts = new UniversalEdgeTTS(cleanText, TTS_VOICE);
-    const result = await tts.synthesize();
-    const duration = Date.now() - start;
-    console.log(`[TTS] Primary synthesis complete in ${duration}ms`);
-    
+    const audio = await synthesize(cleanText, TTS_VOICE);
+    console.log(`[TTS] ${TTS_VOICE} synthesis complete in ${Date.now() - start}ms`);
+
     res.setHeader('Content-Type', 'audio/mpeg');
-    const arrayBuffer = await result.audio.arrayBuffer();
-    res.end(Buffer.from(arrayBuffer));
+    res.end(audio);
   } catch (err) {
     console.warn(`[TTS] Primary voice failed: ${err.message}. Trying fallback…`);
     try {
-      const ttsFallback = new UniversalEdgeTTS(cleanText, TTS_FALLBACK_VOICE);
-      const result = await ttsFallback.synthesize();
+      const audio = await synthesize(cleanText, TTS_FALLBACK_VOICE);
       res.setHeader('Content-Type', 'audio/mpeg');
-      const arrayBuffer = await result.audio.arrayBuffer();
-      res.end(Buffer.from(arrayBuffer));
+      res.end(audio);
     } catch (err2) {
       console.error(`[TTS] All voices failed: ${err2.message}`);
       res.status(503).json({ error: 'TTS synthesis failed.' });
@@ -65,15 +73,17 @@ router.post('/tts', async (req, res) => {
 
 /**
  * GET /api/voices
- * Return list of available English voices.
+ * Return voices that can read English: en-* plus the multilingual ones (e.g. German-accented).
  */
 router.get('/voices', async (req, res) => {
   try {
     const voices = await listVoicesUniversal();
-    const english = voices.filter(v => v.Locale?.startsWith('en-')).map(v => v.ShortName);
-    res.json({ voices: english, current: TTS_VOICE });
+    const usable = voices
+      .filter(v => v.Locale?.startsWith('en-') || v.ShortName?.includes('Multilingual'))
+      .map(v => v.ShortName);
+    res.json({ voices: usable, current: TTS_VOICE });
   } catch {
-    res.json({ voices: ['en-US-GuyNeural', 'en-US-AriaNeural', 'en-GB-RyanNeural'], current: TTS_VOICE });
+    res.json({ voices: ['de-DE-FlorianMultilingualNeural', 'de-DE-SeraphinaMultilingualNeural', 'en-GB-RyanNeural'], current: TTS_VOICE });
   }
 });
 

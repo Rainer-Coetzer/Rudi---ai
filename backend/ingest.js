@@ -1,5 +1,5 @@
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { addKnowledge } from './knowledgeStore.js';
+import { addKnowledge, addKnowledgeBatch } from './knowledgeStore.js';
 
 /**
  * PDF Ingestion using pdfjs-dist (Mozilla PDF.js)
@@ -34,15 +34,13 @@ export async function ingestPDF(base64Data, filename) {
 
     if (chunks.length === 0) throw new Error('No extractable text found in PDF.');
 
-    const entries = [];
-    for (const chunk of chunks) {
-      const entry = await addKnowledge({
+    const entries = await addKnowledgeBatch(
+      chunks.map(chunk => ({
         source: `${filename} (page ${chunk.page}/${totalPages})`,
         type: 'pdf',
         content: chunk.text,
-      });
-      entries.push(entry);
-    }
+      }))
+    );
 
     return { success: true, pages: totalPages, chunks: entries.length, filename };
   } catch (err) {

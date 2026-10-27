@@ -5,19 +5,25 @@
   "author": "Rainer & Rudi Contributors",
   "private": false,
   "type": "module",
-  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build --config src-tauri/tauri.bundle.conf.json",
+    "tauri": "tauri",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@react-three/postprocessing": "^3.0.4",
+    "@tauri-apps/api": "^2.12.4",
     "@xenova/transformers": "^2.17.2",
-    "active-win": "^8.2.1",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.8.0",
     "ollama": "^0.6.3",
@@ -28,13 +34,12 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@tailwindcss/vite": "^4.2.2",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.27",
-    "electron": "^41.2.0",
-    "electron-builder": "^26.8.1",
     "esbuild": "^0.28.0",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -45,7 +50,6 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.0",
     "vite": "^8.0.4",
-    "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vitest": "^5.0.5"
   }
 }

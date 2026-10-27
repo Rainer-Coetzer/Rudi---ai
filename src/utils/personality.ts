@@ -6,22 +6,16 @@
 
 /**
  * Formats Rudi's response text for display:
- * - Strips JSON tool blocks from visible text
- * - Converts basic markdown to readable form for the chat panel
  * - Cleans up the GOAL/REASONING/ACTION labels for a cleaner presentation
+ *
+ * Tool-call JSON is already removed by splitToolCalls (utils/toolCalls.ts), which
+ * leaves code and other braces intact — don't strip braces here.
  */
 export function formatRudiResponse(text: string): string {
   if (!text) return text;
 
-  let formatted = text;
+  let formatted = text
 
-  // Remove raw JSON tool blocks from display (they are handled by the tool executor)
-  // Match JSON blocks that contain "tool" or "action" keys
-  formatted = formatted.replace(/\{[\s\S]*?"tool"\s*:[\s\S]*?\}/g, '').trim();
-  formatted = formatted.replace(/\{[\s\S]*?"action"\s*:[\s\S]*?\}/g, '').trim();
-
-  
-  formatted = formatted
     .replace(/\[GOAL\]/g, '🎯 GOAL:')
     .replace(/\[REASONING\]/g, '💭 REASONING:')
     .replace(/\[TOOL SELECTED\]/g, '🔧 TOOL:')

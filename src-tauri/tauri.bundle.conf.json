@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "externalBin": ["binaries/node"],
+    "resources": {
+      "../dist-sidecar/index.mjs": "sidecar/index.mjs",
+      "../sidecar/plugins/": "sidecar/plugins/",
+      "../backend/package.json": "backend/package.json",
+      "../backend/server.js": "backend/server.js",
+      "../backend/env.js": "backend/env.js",
+      "../backend/paths.js": "backend/paths.js",
+      "../backend/claudeProvider.js": "backend/claudeProvider.js",
+      "../backend/chatProtocol.js": "backend/chatProtocol.js",
+      "../backend/prompt.js": "backend/prompt.js",
+      "../backend/tools.js": "backend/tools.js",
+      "../backend/ingest.js": "backend/ingest.js",
+      "../backend/knowledgeStore.js": "backend/knowledgeStore.js",
+      "../backend/modelConfig.js": "backend/modelConfig.js",
+      "../backend/resourceManager.js": "backend/resourceManager.js",
+      "../backend/routes/": "backend/routes/",
+      "../backend/node_modules/": "backend/node_modules/"
+    }
+  }
+}

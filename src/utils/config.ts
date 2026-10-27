@@ -3,7 +3,11 @@
  * Centralizing URLs to allow for easier staging/production transitions
  */
 
-export const API_BASE = 'http://localhost:3001/api';
+// The Tauri shell injects the backend port (RUDI_BACKEND_PORT); plain `vite` falls back to 3001.
+const BACKEND_PORT = (window as { __RUDI_BACKEND_PORT__?: number }).__RUDI_BACKEND_PORT__ ?? 3001;
+
+// 127.0.0.1, not localhost: the backend binds to IPv4 loopback only.
+export const API_BASE = `http://127.0.0.1:${BACKEND_PORT}/api`;
 
 export const ENDPOINTS = {
   CHAT: `${API_BASE}/chat`,

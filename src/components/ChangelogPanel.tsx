@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GitCommit, X, RefreshCw } from 'lucide-react';
+import { useToolResult } from '../hooks/useToolResult';
+import type { ChangelogEntry } from '../types/data';
 
 interface ChangelogPanelProps {
   isOpen: boolean;
@@ -8,26 +10,8 @@ interface ChangelogPanelProps {
 }
 
 export const ChangelogPanel: React.FC<ChangelogPanelProps> = ({ isOpen, onClose }) => {
-  const [logs, setLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const fetchLogs = async () => {
-    if (!window.electronAPI) return;
-    setLoading(true);
-    try {
-      const res = await window.electronAPI.executeTool('self_changelog', {});
-      if (res.success) {
-        setLogs(JSON.parse(res.result));
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    if (isOpen) fetchLogs();
-  }, [isOpen]);
+  const { data, loading, reload: fetchLogs } = useToolResult<ChangelogEntry[]>('self_changelog', isOpen);
+  const logs = data ?? [];
 
   return (
     <AnimatePresence>

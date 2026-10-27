@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Rudi",
+  "version": "1.0.0",
+  "identifier": "com.rudi.agent",
+  "build": {
+    "beforeDevCommand": "npm run build:sidecar && npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm ci --omit=dev --prefix backend && npm run build:sidecar -- --release && npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Rudi",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "decorations": false,
+        "backgroundColor": "#000000"
+      },
+      {
+        "label": "ghost",
+        "title": "Rudi Ghost",
+        "url": "index.html#/ghost",
+        "width": 600,
+        "height": 120,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

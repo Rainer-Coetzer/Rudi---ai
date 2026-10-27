@@ -1,24 +1,26 @@
 /**
- * Rudi Model Configuration v2
- * 
- * Models are selected automatically based on available hardware.
- * Override with environment variables if needed:
- *   RUDI_MODEL         — force a specific primary model
- *   RUDI_FALLBACK_MODEL — force a specific fallback model  
- *   RUDI_VISION_MODEL  — vision model for image analysis
- * 
- * Available tiers (auto-selected by resourceManager):
- *   gemma4:latest  — Full 27B  — requires 16GB+ VRAM / 16GB+ RAM
- *   gemma4:e4b     — E4B 4bit  — requires 8GB+  VRAM / 10GB+ RAM
- *   gemma4:e2b     — E2B 2bit  — requires 4GB+  VRAM / 6GB+  RAM
+ * Rudi Model Configuration v3
+ *
+ * Role-based model lineup — each role targets a smaller, faster local model.
+ * Override any role with environment variables:
+ *   RUDI_MODEL                   — general / voice chat  (default: llama3.2:1b)
+ *   RUDI_CODING_MODEL            — code generation        (default: qwen2.5-coder:1.5b)
+ *   RUDI_REASONING_MODEL         — quick analysis         (default: qwen3:0.6b)
+ *   RUDI_REASONING_HEAVY_MODEL   — deep reasoning         (default: deepseek-r1:1.5b)
+ *   RUDI_VISION_MODEL            — image analysis         (default: moondream:latest)
+ *
+ * Models are stored in D:\Rudi\models (set via OLLAMA_MODELS in electron/main.ts).
  */
 
 export const MODEL_CONFIG = {
-  // These are defaults; the server overrides them on startup via autoSelectModel()
-  // e2b is used for simple/conversational tasks. e4b escalates automatically for complex work.
-  primary:  process.env.RUDI_MODEL          || 'gemma4:e2b',
-  fallback: process.env.RUDI_FALLBACK_MODEL || 'gemma4:e2b',
-  vision:   process.env.RUDI_VISION_MODEL   || 'moondream:latest',
+  general:        process.env.RUDI_MODEL                 || 'llama3.2:1b',
+  coding:         process.env.RUDI_CODING_MODEL          || 'qwen2.5-coder:1.5b',
+  reasoning:      process.env.RUDI_REASONING_MODEL       || 'qwen3:0.6b',
+  reasoningHeavy: process.env.RUDI_REASONING_HEAVY_MODEL || 'deepseek-r1:1.5b',
+  vision:         process.env.RUDI_VISION_MODEL          || 'moondream:latest',
+  // Back-compat aliases used by legacy code paths
+  primary:  process.env.RUDI_MODEL || 'llama3.2:1b',
+  fallback: process.env.RUDI_MODEL || 'llama3.2:1b',
 };
 
 /**
@@ -33,6 +35,52 @@ export async function resolveModel(ollamaClient, modelName) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Model families known to support Ollama's native tool calling. Used only when
+ * the installed Ollama is too old to report capabilities from /api/show.
+ * Of the defaults above, llama3.2, qwen2.5-coder and qwen3 support tools;
+ * deepseek-r1:1.5b and moondream do not and use the text protocol.
+ */
+export const TOOL_CAPABLE_FAMILIES = [
+  'llama3.1', 'llama3.2', 'llama3.3', 'llama4',
+  'qwen2.5', 'qwen2.5-coder', 'qwen3', 'qwen3-coder',
+  'mistral', 'mistral-nemo', 'mistral-small', 'mixtral', 'devstral',
+  'command-r', 'command-r-plus', 'firefunction-v2', 'hermes3',
+  'granite3.1-dense', 'granite3.2', 'granite3.3', 'phi4-mini', 'smollm2', 'gpt-oss',
+];
+
+const toolSupportCache = new Map();
+
+/**
+ * Whether a local model accepts the `tools` parameter. Asks Ollama first
+ * (`capabilities` includes "tools"), then falls back to TOOL_CAPABLE_FAMILIES.
+ * Set RUDI_DISABLE_NATIVE_TOOLS=1 to force the text protocol for every model.
+ */
+export async function supportsTools(ollamaClient, modelName) {
+  if (process.env.RUDI_DISABLE_NATIVE_TOOLS === '1') return false;
+  if (toolSupportCache.has(modelName)) return toolSupportCache.get(modelName);
+
+  let supported;
+  try {
+    const info = await ollamaClient.show({ model: modelName });
+    if (Array.isArray(info?.capabilities)) supported = info.capabilities.includes('tools');
+  } catch {
+    // Older Ollama or model not pulled yet — fall through to the name check.
+  }
+  if (supported === undefined) {
+    const family = modelName.split(':')[0].split('/').pop();
+    supported = TOOL_CAPABLE_FAMILIES.includes(family);
+  }
+
+  toolSupportCache.set(modelName, supported);
+  return supported;
+}
+
+/** Remember that a model has no tool support, e.g. after Ollama rejected `tools` for it. */
+export function markNoToolSupport(modelName) {
+  toolSupportCache.set(modelName, false);
 }
 
 /**

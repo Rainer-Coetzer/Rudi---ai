@@ -82,13 +82,16 @@ const TOOL_AUTONOMY_MAP: Record<string, AutonomyLevel> = {
 /**
  * Determines if a tool can be auto-executed at the given autonomy level.
  * In OBSERVE mode, nothing is auto-executed — only suggestions are shown.
+ * Unknown tools (not in TOOL_AUTONOMY_MAP) are NEVER auto-executed — fail closed.
  */
 export function canAutoExecute(toolName: string, level: AutonomyLevel): boolean {
   if (level === 'observe') return false;
 
-  const required = TOOL_AUTONOMY_MAP[toolName] ?? 'autonomous';
+  // Fail closed: tools not explicitly mapped always require user confirmation.
+  if (!(toolName in TOOL_AUTONOMY_MAP)) return false;
 
-  if (level === 'autonomous') return true; // autonomous can run all (except hardcoded dangerous)
+  if (level === 'autonomous') return true; // autonomous can run all known tools (except hardcoded dangerous)
+  const required = TOOL_AUTONOMY_MAP[toolName];
   if (level === 'assist') return required === 'assist'; // assist can run assist-level only
 
   return false;
@@ -105,6 +108,7 @@ export function requiresHardConfirmation(toolName: string): boolean {
 
 /**
  * Returns the autonomy level required for a tool.
+ * Unknown tools report 'autonomous' for display (indicating they need the highest level to even consider).
  */
 export function getRequiredAutonomy(toolName: string): AutonomyLevel {
   return TOOL_AUTONOMY_MAP[toolName] ?? 'autonomous';

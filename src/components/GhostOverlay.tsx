@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useRudi, RudiState } from '../hooks/useRudi';
 
 export const GhostOverlay: React.FC = () => {
@@ -29,32 +29,33 @@ export const GhostOverlay: React.FC = () => {
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-2 px-1">
-          <div className="text-[10px] text-cyan-400 font-bold tracking-[0.2em] flex items-center gap-2">
-            <span className="animate-pulse">●</span> RUDI_HUD_v1.0.4 // GHOST_MODE
+          <div className="text-xs text-cyan-300 font-bold tracking-[0.15em] flex items-center gap-2">
+            <span aria-hidden className="animate-pulse">●</span> RUDI_HUD_v1.0.4 // GHOST_MODE
           </div>
-          <div className="text-[9px] text-white/30 truncate max-w-[200px]">
+          <div className="text-xs text-white/60 truncate max-w-[200px]">
             ACTIVE_SESSION: {new Date().toLocaleTimeString()}
           </div>
         </div>
 
         {/* Console Input */}
         <div className="relative group">
-          <div className="absolute left-2 top-1.5 text-cyan-400 text-sm">{'>'}</div>
+          <div aria-hidden className="absolute left-2 top-1.5 text-cyan-400 text-sm">{'>'}</div>
           <form onSubmit={handleSubmit}>
             <input
               ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="ENTER COMMAND, SIR..."
-              className="w-full bg-cyan-950/20 border border-cyan-500/20 rounded pl-7 pr-3 py-1.5 text-cyan-100 text-sm placeholder:text-cyan-900 focus:outline-none focus:border-cyan-400/50 transition-all font-mono"
+              aria-label="Command for Rudi"
+              placeholder="Enter a command…"
+              className="w-full bg-cyan-950/20 border border-cyan-500/30 rounded pl-7 pr-3 py-1.5 text-cyan-100 text-sm placeholder:text-cyan-300/60 focus:outline-none focus-visible:outline-none focus:border-cyan-400/70 transition-all font-mono"
             />
           </form>
         </div>
 
         {/* Visualizer / Status Area */}
         <div className="mt-2 flex items-center justify-between px-1 h-4">
-          <div className="flex gap-1">
+          <div aria-hidden className="flex gap-1">
             {[...Array(20)].map((_, i) => (
               <motion.div
                 key={i}
@@ -67,7 +68,7 @@ export const GhostOverlay: React.FC = () => {
               />
             ))}
           </div>
-          <div className="text-[8px] text-cyan-500/60 uppercase tracking-tighter">
+          <div role="status" className="text-xs text-cyan-300/80 uppercase tracking-tight">
             {state === RudiState.Thinking ? 'Deciphering...' : 
              state === RudiState.Speaking ? 'Transmitting...' : 
              'System Ready'}
@@ -76,7 +77,7 @@ export const GhostOverlay: React.FC = () => {
       </motion.div>
 
       {/* Decorative ASCII Elements */}
-      <div className="absolute top-2 right-4 text-[6px] text-cyan-500/10 leading-[1.1] pointer-events-none">
+      <div aria-hidden className="absolute top-2 right-4 text-[6px] text-cyan-500/10 leading-[1.1] pointer-events-none">
         {`   _  _   _  _   _  _ 
   ( )/ ) ( )/ ) ( )/ )
    V  V   V  V   V  V 

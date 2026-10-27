@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Terminal, Globe, Folder, Play, Search, GitBranch,
@@ -22,6 +22,24 @@ interface ToolItem {
 }
 
 export const SidebarTools: React.FC<SidebarToolsProps> = ({ onToolSelect }) => {
+  const [workspace, setWorkspace] = useState<string>('');
+
+  useEffect(() => {
+    if (window.desktopAPI?.getWorkspace) {
+      window.desktopAPI.getWorkspace().then(setWorkspace).catch(() => {});
+    }
+  }, []);
+
+  const handlePickWorkspace = async () => {
+    if (!window.desktopAPI?.pickWorkspace) return;
+    const chosen = await window.desktopAPI.pickWorkspace();
+    if (chosen) setWorkspace(chosen);
+  };
+
+  const workspaceBasename = workspace
+    ? workspace.split(/[\\/]/).filter(Boolean).pop() ?? workspace
+    : 'No workspace';
+
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({
     System: true,
     Files: false,
@@ -107,18 +125,39 @@ export const SidebarTools: React.FC<SidebarToolsProps> = ({ onToolSelect }) => {
   ];
 
   const badgeColors: Record<string, string> = {
-    SAFE:   'text-emerald-400/70 bg-emerald-500/10',
-    CAUTION:'text-amber-400/70 bg-amber-500/10',
-    DANGER: 'text-red-400/70 bg-red-500/10',
+    SAFE:   'text-emerald-300 bg-emerald-500/10',
+    CAUTION:'text-amber-300 bg-amber-500/15',
+    DANGER: 'text-red-300 bg-red-500/15',
   };
 
   return (
     <aside
-      className="w-[260px] h-full overflow-y-auto custom-scrollbar border-r border-white/8 bg-black/70 backdrop-blur-xl flex flex-col pt-14 pointer-events-auto shrink-0"
+      aria-label="Quick commands"
+      className="w-[220px] xl:w-[260px] h-full overflow-y-auto custom-scrollbar border-r border-white/10 bg-black/80 backdrop-blur-xl flex flex-col shrink-0"
     >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-white/20">
-        <p className="text-[9px] uppercase tracking-[0.2em] text-white/80 font-bold">Rudi Command Center</p>
+      <div className="px-4 py-3 border-b border-white/10">
+        <h2 className="text-xs uppercase tracking-[0.15em] text-white font-bold display-font">Quick commands</h2>
+      </div>
+
+      {/* Workspace bar */}
+      <div className="px-3 py-2 border-b border-white/10 flex items-center gap-2 bg-white/5">
+        <Folder size={14} className="text-cyan-400 shrink-0" aria-hidden />
+        <span
+          className="text-xs text-white/80 truncate flex-1 font-mono"
+          title={workspace ? `Workspace: ${workspace}` : 'No workspace selected'}
+        >
+          {workspaceBasename}
+        </span>
+        <button
+          type="button"
+          onClick={handlePickWorkspace}
+          disabled={!window.desktopAPI?.pickWorkspace}
+          className="text-xs font-semibold text-cyan-300 hover:text-cyan-200 disabled:text-white/50 disabled:cursor-not-allowed transition-colors shrink-0 px-1.5 py-0.5 rounded hover:bg-white/10"
+          title={window.desktopAPI?.pickWorkspace ? 'Change active workspace' : 'Workspace selection is available in the desktop app'}
+        >
+          Change
+        </button>
       </div>
 
       <nav className="flex flex-col gap-1 px-2 pb-10 pt-2">
@@ -147,17 +186,27 @@ export const SidebarTools: React.FC<SidebarToolsProps> = ({ onToolSelect }) => {
   );
 };
 
-const ToolCategory = ({ title, icon, open, toggle, children }: any) => (
+interface ToolCategoryProps {
+  title: string;
+  icon: React.ReactNode;
+  open: boolean;
+  toggle: () => void;
+  children: React.ReactNode;
+}
+
+const ToolCategory = ({ title, icon, open, toggle, children }: ToolCategoryProps) => (
   <div className="flex flex-col">
     <button
+      type="button"
       onClick={toggle}
-      className="flex items-center justify-between text-white/90 hover:text-white uppercase text-[9px] tracking-[0.18em] font-bold px-3 py-2 rounded-lg hover:bg-white/20 transition-all group"
+      aria-expanded={open}
+      className="flex items-center justify-between text-white/90 hover:text-white uppercase text-xs tracking-[0.12em] font-bold px-3 py-2 rounded-lg hover:bg-white/10 transition-all group"
     >
       <div className="flex items-center gap-2 text-white group-hover:text-white transition-colors">
         {icon} {title}
       </div>
       <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
-        <ChevronDown size={12} className="text-white/70" />
+        <ChevronDown size={14} className="text-white/70" aria-hidden />
       </motion.div>
     </button>
     <AnimatePresence initial={false}>
@@ -169,7 +218,7 @@ const ToolCategory = ({ title, icon, open, toggle, children }: any) => (
           transition={{ duration: 0.2, ease: 'easeInOut' }}
           className="overflow-hidden"
         >
-          <div className="flex flex-col gap-0.5 pl-3 ml-2 border-l border-white/8 mb-2">
+          <div className="flex flex-col gap-0.5 pl-2 ml-2 border-l border-white/10 mb-2">
             {children}
           </div>
         </motion.div>
@@ -190,16 +239,19 @@ const SidebarItem = ({
   <motion.button
     whileHover={{ x: 3 }}
     whileTap={{ scale: 0.97 }}
+    type="button"
     onClick={onClick}
-    className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg transition-all text-white/90 hover:bg-white/20 hover:text-cyan-200 group w-full font-medium"
+    title={badge ? `${label} (${badge.toLowerCase()})` : label}
+    className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg transition-all text-white/90 hover:bg-white/10 hover:text-cyan-200 group w-full font-medium"
   >
     <div className="flex items-center gap-2.5 min-w-0">
       <span className="shrink-0 text-white/70 group-hover:text-cyan-300 transition-colors">{icon}</span>
-      <span className="text-[11px] text-white tracking-wide truncate">{label}</span>
+      <span className="text-xs text-white truncate">{label}</span>
     </div>
-    {badge && (
-      <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${badgeColors[badge] || ''}`}>
-        {badge}
+    {/* Only flag risky commands; most are safe and a badge on each would be noise. */}
+    {badge && badge !== 'SAFE' && (
+      <span className={`text-xs font-semibold px-1.5 py-0.5 rounded shrink-0 ${badgeColors[badge] || ''}`}>
+        {badge === 'DANGER' ? 'Danger' : 'Caution'}
       </span>
     )}
   </motion.button>
