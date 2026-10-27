@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
+import { constants as fsConstants } from 'fs';
 import path from 'path';
-import os from 'os';
+import { getUserDataDir, getLegacyDataDir } from './paths.js';
 
 let kbCache = null;
 let idCounter = 0;
@@ -8,10 +9,36 @@ let idCounter = 0;
 const lowerCache = new WeakMap();
 let kbQueue = Promise.resolve();
 
-const KB_PATH = path.join(os.homedir(), 'AppData', 'Roaming', 'rudi-app', 'knowledge_base.json');
+const KB_FILE = 'knowledge_base.json';
+export const KB_PATH = path.join(getUserDataDir(), KB_FILE);
+const LEGACY_KB_PATH = path.join(getLegacyDataDir(), KB_FILE);
+
+/**
+ * One-time move from %APPDATA%/rudi-app: copies the old file in if there is no
+ * knowledge base here yet. The old file is left in place as a backup.
+ */
+async function migrateLegacyStore() {
+  if (path.resolve(LEGACY_KB_PATH) === path.resolve(KB_PATH)) return;
+  try {
+    await fs.access(KB_PATH);
+    return;
+  } catch {
+    // no current store — fall through
+  }
+  try {
+    await fs.mkdir(path.dirname(KB_PATH), { recursive: true });
+    await fs.copyFile(LEGACY_KB_PATH, KB_PATH, fsConstants.COPYFILE_EXCL);
+    console.log(`[KB] Migrated knowledge base from ${LEGACY_KB_PATH}`);
+  } catch (err) {
+    if (err.code !== 'ENOENT' && err.code !== 'EEXIST') {
+      console.error(`[KB] Could not migrate ${LEGACY_KB_PATH}: ${err.message}`);
+    }
+  }
+}
 
 async function loadStore() {
   if (kbCache) return kbCache;
+  await migrateLegacyStore();
   try {
     const raw = await fs.readFile(KB_PATH, 'utf-8');
     kbCache = JSON.parse(raw);

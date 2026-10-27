@@ -1,5 +1,5 @@
-//! Ollama daemon bootstrap: point it at the shared models dir, start it if it
-//! isn't already serving, and pull any of Rudi's models that are missing.
+//! Ollama daemon bootstrap: point it at Rudi's models dir (if one is configured),
+//! start it if it isn't already serving, and pull any of Rudi's models that are missing.
 
 use crate::sidecar::log_activity;
 use std::net::{SocketAddr, TcpStream};
@@ -8,7 +8,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::AppHandle;
 
-const DEFAULT_MODELS_DIR: &str = r"D:\Rudi\models";
+/// Where models lived when the path was hard-coded; still used if it exists.
+const LEGACY_MODELS_DIR: &str = r"D:\Rudi\models";
 const RUDI_MODELS: [&str; 4] = ["llama3.2:1b", "qwen2.5-coder:1.5b", "qwen3:0.6b", "deepseek-r1:1.5b"];
 
 /// The daemon we spawned, if any (None when Ollama was already running).
@@ -51,20 +52,35 @@ fn installed_models() -> Option<Vec<String>> {
     )
 }
 
+/// `RUDI_MODELS_DIR`, else the legacy dir if it holds models. None leaves Ollama
+/// on its own setting (`OLLAMA_MODELS`, or ~/.ollama/models), shared with other tools.
+fn models_dir() -> Option<String> {
+    if let Some(dir) = std::env::var("RUDI_MODELS_DIR").ok().filter(|d| !d.is_empty()) {
+        return Some(dir);
+    }
+    std::path::Path::new(LEGACY_MODELS_DIR)
+        .is_dir()
+        .then(|| LEGACY_MODELS_DIR.to_string())
+}
+
 /// Runs on a background thread; never blocks startup.
 pub fn bootstrap(app: AppHandle) {
     std::thread::spawn(move || {
-        let models_dir = std::env::var("RUDI_MODELS_DIR").unwrap_or_else(|_| DEFAULT_MODELS_DIR.into());
-        let _ = std::fs::create_dir_all(&models_dir);
-        // Children (ollama serve / pull) inherit this.
-        std::env::set_var("OLLAMA_MODELS", &models_dir);
+        if let Some(models_dir) = models_dir() {
+            let _ = std::fs::create_dir_all(&models_dir);
+            // Children (ollama serve / pull) inherit this.
+            std::env::set_var("OLLAMA_MODELS", &models_dir);
 
-        #[cfg(windows)]
-        {
-            // Persist for future OS sessions (HKCU user env — no admin needed).
-            let _ = command("setx").args(["OLLAMA_MODELS", &models_dir]).stdout(Stdio::null()).spawn();
+            #[cfg(windows)]
+            {
+                // Persist for future OS sessions (HKCU user env — no admin needed),
+                // so a tray-started Ollama finds the same models.
+                let _ = command("setx").args(["OLLAMA_MODELS", &models_dir]).stdout(Stdio::null()).spawn();
+            }
+            eprintln!("[OLLAMA] OLLAMA_MODELS={models_dir}");
+        } else {
+            eprintln!("[OLLAMA] Using Ollama's default models dir.");
         }
-        eprintln!("[OLLAMA] OLLAMA_MODELS={models_dir}");
 
         if is_serving() {
             eprintln!("[OLLAMA] Already running — skipping daemon spawn.");

@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './env.js';
 import express from 'express';
 import cors from 'cors';
 
@@ -9,7 +9,8 @@ import systemRouter from './routes/system.js';
 import chatRouter, { setSystemPrompt } from './routes/chat.js';
 
 const app = express();
-const PORT = 3001;
+// The Tauri shell passes RUDI_BACKEND_PORT; standalone `npm start` uses 3001.
+const PORT = Number(process.env.RUDI_BACKEND_PORT) || 3001;
 // Loopback only — the API holds the knowledge base and spends API credits.
 const HOST = '127.0.0.1';
 
