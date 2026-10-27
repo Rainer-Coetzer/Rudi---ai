@@ -56,9 +56,12 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
       >
         {/* Voice Toggle */}
         <button
+          type="button"
           onClick={() => setVoiceEnabled(!voiceEnabled)}
-          title={voiceEnabled ? 'Disable Voice' : 'Enable Voice'}
-          className={`p-1.5 rounded-lg transition ${voiceEnabled ? 'text-cyan-400 hover:text-cyan-200' : 'text-white/30 hover:text-white/60'}`}
+          aria-pressed={voiceEnabled}
+          aria-label={voiceEnabled ? 'Turn voice off' : 'Turn voice on'}
+          title={voiceEnabled ? 'Turn voice off' : 'Turn voice on'}
+          className={`p-1.5 rounded-lg transition ${voiceEnabled ? 'text-cyan-400 hover:text-cyan-200' : 'text-white/70 hover:text-white'}`}
         >
           {voiceEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
         </button>
@@ -79,6 +82,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
                 step={0.01}
                 value={volume}
                 onChange={e => setVolume(parseFloat(e.target.value))}
+                aria-label="Voice volume"
                 className="w-20 h-1 accent-cyan-400 cursor-pointer"
               />
             </motion.div>

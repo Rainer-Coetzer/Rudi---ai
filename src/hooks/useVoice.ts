@@ -10,8 +10,24 @@ export interface VoiceState {
 
 const TTS_ENDPOINT = ENDPOINTS.TTS;
 
+const VOICE_PREF_KEY = 'rudi_voice_enabled';
+
+function readVoicePref(): boolean {
+  try {
+    return localStorage.getItem(VOICE_PREF_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export function useVoice() {
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  // Voice mode (spoken replies + always-on "Hey Rudi" listening) starts off, so
+  // the microphone is never requested until the user switches it on.
+  const [voiceEnabled, setVoiceEnabledState] = useState(readVoicePref);
+  const setVoiceEnabled = useCallback((enabled: boolean) => {
+    setVoiceEnabledState(enabled);
+    try { localStorage.setItem(VOICE_PREF_KEY, String(enabled)); } catch { /* storage unavailable */ }
+  }, []);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [volume, setVolume] = useState(0.85);

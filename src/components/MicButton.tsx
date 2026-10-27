@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, MicOff } from 'lucide-react';
+import { Mic } from 'lucide-react';
 import { RudiState } from '../hooks/useRudi';
 
 interface MicButtonProps {
@@ -19,14 +19,17 @@ export const MicButton: React.FC<MicButtonProps> = ({ state, toggleListening, au
     <button
       type="button"
       onClick={toggleListening}
+      aria-pressed={state === RudiState.Listening}
+      aria-label={state === RudiState.Listening ? 'Stop listening' : 'Talk to Rudi'}
+      title={state === RudiState.Listening ? 'Stop listening' : 'Click to talk'}
       style={boxShadowStyle}
       className={`p-4 transition rounded-full ${
         state === RudiState.Listening 
           ? 'text-green-400 border border-green-500 bg-green-500/10' 
-          : 'text-white/50 hover:text-white border border-transparent'
+          : 'text-white/70 hover:text-white border border-transparent'
       }`}
     >
-      {state === RudiState.Listening ? <Mic size={24} /> : <MicOff size={24} />}
+      <Mic size={24} />
     </button>
   );
 };

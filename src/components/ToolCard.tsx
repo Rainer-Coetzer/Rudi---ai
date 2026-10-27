@@ -31,9 +31,9 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, devMode }) => {
 
   const getLevelBadge = () => {
     switch(tool.level) {
-      case 'safe': return <span className="px-2 py-0.5 rounded text-[9px] uppercase font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">Safe</span>;
-      case 'caution': return <span className="px-2 py-0.5 rounded text-[9px] uppercase font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">Caution</span>;
-      case 'dangerous': return <span className="px-2 py-0.5 rounded text-[9px] uppercase font-bold bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse">Dangerous</span>;
+      case 'safe': return <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-500/20 text-blue-200 border border-blue-500/30">Safe</span>;
+      case 'caution': return <span className="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/20 text-yellow-200 border border-yellow-500/30">Caution</span>;
+      case 'dangerous': return <span className="px-2 py-0.5 rounded text-xs font-semibold bg-red-500/20 text-red-200 border border-red-500/40">Dangerous</span>;
       default: return null;
     }
   };
@@ -47,15 +47,15 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, devMode }) => {
       <div className="flex flex-col gap-2">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-medium text-white/90 truncate">
-            <Wrench size={14} className="text-white/40 shrink-0" />
-            <span className="tracking-wide flex items-center gap-2">
-              <span className="text-white font-bold">{tool.name}</span>
+          <div className="flex items-center gap-2 text-sm font-medium text-white/90 min-w-0">
+            <Wrench size={14} className="text-white/70 shrink-0" aria-hidden />
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="text-white font-bold truncate font-mono text-xs">{tool.name}</span>
               {getLevelBadge()}
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-white/50">
+            <span className="text-xs font-semibold capitalize text-white/80">
               {tool.status}
             </span>
             {getStatusIcon()}
@@ -64,7 +64,7 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, devMode }) => {
 
         {/* Result Area */}
         {tool.result && (
-          <div className={`text-xs p-2 rounded bg-black/40 border border-white/5 font-mono break-words ${
+          <div className={`text-xs p-2 rounded bg-black/40 border border-white/10 font-mono break-words select-text ${
             tool.status === 'error' ? 'text-red-300' : 'text-green-300'
           }`}>
             {tool.status === 'error' ? `Error: ${tool.result}` : `> ${tool.result}`}
@@ -73,8 +73,8 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, devMode }) => {
 
         {/* Dev Mode Parameters Layer */}
         {devMode && (
-          <div className="text-[10px] text-white/40 bg-black/60 p-2 rounded font-mono border border-white/5 mt-1 overflow-x-auto">
-            <div className="text-white/20 mb-1">Raw Parameters:</div>
+          <div className="text-xs text-white/80 bg-black/60 p-2 rounded font-mono border border-white/10 mt-1 overflow-x-auto whitespace-pre select-text">
+            <div className="text-white/60 mb-1">Raw parameters:</div>
             {JSON.stringify(tool.params, null, 2)}
           </div>
         )}
