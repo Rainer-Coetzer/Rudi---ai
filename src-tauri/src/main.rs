@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod awareness;
+mod backend;
 mod ollama;
 mod sidecar;
 
@@ -109,8 +110,16 @@ fn position_ghost(ghost: &WebviewWindow) {
     let _ = ghost.set_position(LogicalPosition::new(x, y));
 }
 
+/// Tells every webview where the backend listens (read by src/utils/config.ts).
+fn backend_port_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("rudi-backend-port")
+        .js_init_script(format!("window.__RUDI_BACKEND_PORT__ = {};", backend::port()))
+        .build()
+}
+
 fn main() {
     let app = tauri::Builder::default()
+        .plugin(backend_port_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(
@@ -128,6 +137,8 @@ fn main() {
             let handle = app.handle().clone();
             let sidecar = Sidecar::spawn(&handle)?;
             app.manage(sidecar);
+
+            backend::spawn(&handle);
 
             ollama::bootstrap(handle.clone());
             awareness::start(handle);
@@ -161,6 +172,7 @@ fn main() {
             if let Some(sidecar) = app.try_state::<Arc<Sidecar>>() {
                 sidecar.kill();
             }
+            backend::shutdown();
             ollama::shutdown();
         }
     });

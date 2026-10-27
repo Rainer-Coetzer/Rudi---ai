@@ -42,21 +42,28 @@ Rudi is built for users who demand privacy without compromising on power. Unlike
    cd rudi-agent
    npm install
    ```
-3. **Backend Setup**:
+3. **Backend dependencies** (the backend keeps its own `node_modules`):
    ```bash
-   cd backend
-   npm install
-   cd ..
+   npm install --prefix backend
    ```
+   For Claude access, put `ANTHROPIC_API_KEY=...` in `backend/.env` (dev) or in `.env` inside the data folder (installed app).
 4. **Run in Development** (desktop app, with hot reload):
    ```bash
    npm run app:dev
    ```
-   `npm run dev` still serves the UI alone in a browser, without native tools.
-5. **Package** (NSIS installer, bundles the Node runtime for the sidecar):
+   The shell starts the Express backend (`backend/server.js`, `http://127.0.0.1:3001/api/health`) and stops it when the app closes; if something already answers on that port it is left alone. `npm run dev` still serves the UI alone in a browser, without native tools; run `npm start --prefix backend` alongside it if you need the API there.
+5. **Package** (NSIS installer, bundles the Node runtime for the sidecar and backend):
    ```bash
    npm run app:build
    ```
+   This reinstalls `backend/node_modules` with production deps only and ships the backend as a resource folder.
+
+### Configuration
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `RUDI_BACKEND_PORT` | `3001` | Port the shell starts the backend on; the UI follows it. |
+| `RUDI_USER_DATA` | `%APPDATA%\rudi-agent` | Data folder shared by the sidecar and backend (settings, logs, `knowledge_base.json`, `.env`). A knowledge base from the old `%APPDATA%\rudi-app` folder is copied here on first run; the original is kept. |
+| `RUDI_MODELS_DIR` | Ollama's own (`OLLAMA_MODELS` or `~\.ollama\models`) | Where Ollama stores Rudi's models. `D:\Rudi\models` is still used if it exists. |
 
 ## 🎮 Usage
 - **Wake Word**: Rudi listens for "Rudi" or "Hey Rudi" to initiate active listening (Local Whisper).
@@ -67,7 +74,7 @@ Rudi is built for users who demand privacy without compromising on power. Unlike
 ## 📁 Project Structure
 ```text
 rudi-agent/
-├── backend/            # Express services (Neural TTS, Knowledge Ingestion)
+├── backend/            # Express API (chat, TTS, knowledge), spawned by the shell
 │   ├── routes/         # Chat, Voice, Knowledge, and System status APIs
 │   └── resourceManager # Hardware-agnostic (AMD/NVIDIA) VRAM detection
 ├── src-tauri/          # Rust shell: windows, ghost hotkey, awareness, Ollama bootstrap
