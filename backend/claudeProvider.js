@@ -2,7 +2,8 @@
  * claudeProvider.js — optional Claude API streaming path.
  *
  * Used when the user selects the "Claude" provider in the UI and
- * ANTHROPIC_API_KEY is set in backend/.env.
+ * ANTHROPIC_API_KEY is set in backend/.env. Without a key, a signed-in Claude
+ * Code CLI is used instead (subscription mode, claudeCliProvider.js).
  *
  * Uses native tool use: the tool schemas from tools.js go in `tools`, and each
  * completed tool_use block is emitted as a {"type":"tool_call"} event (see
@@ -15,6 +16,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { toClaudeMessages } from './chatProtocol.js';
 import { toClaudeTools } from './tools.js';
+import { isCliLoggedIn, cliLoggedInCached, cliModel } from './claudeCliProvider.js';
 
 let _client = null;
 
@@ -25,12 +27,23 @@ function getClient() {
   return _client;
 }
 
-export function isClaudeAvailable() {
-  return !!process.env.ANTHROPIC_API_KEY;
+/**
+ * 'api' when ANTHROPIC_API_KEY is set (SDK, native tools), else 'subscription'
+ * when the Claude Code CLI is signed in with claude.ai (see claudeCliProvider.js),
+ * else null.
+ */
+export async function getClaudeMode() {
+  if (process.env.ANTHROPIC_API_KEY) return 'api';
+  return (await isCliLoggedIn()) ? 'subscription' : null;
 }
 
-export function claudeModel() {
-  return process.env.RUDI_CLAUDE_MODEL || 'claude-opus-4-8';
+/** Synchronous check; the subscription half uses the last cached CLI status. */
+export function isClaudeAvailable() {
+  return !!process.env.ANTHROPIC_API_KEY || cliLoggedInCached();
+}
+
+export function claudeModel(mode = 'api') {
+  return mode === 'subscription' ? cliModel() : process.env.RUDI_CLAUDE_MODEL || 'claude-opus-4-8';
 }
 
 /**

@@ -60,7 +60,7 @@ async function postChat(deps, body) {
   }
 }
 
-const noClaude = { isAvailable: () => false, stream: async () => {}, model: () => 'none' };
+const noClaude = { mode: async () => null, stream: async () => {}, streamCli: async () => {}, model: () => 'none' };
 
 test('tool schemas are well-formed and unique', () => {
   const names = TOOLS.map(t => t.name);
@@ -194,7 +194,7 @@ test('claude: native tool_use streams as tool_call and history becomes tool_use/
     { type: 'message_stop' },
   ]);
   const claude = {
-    isAvailable: () => true,
+    mode: async () => 'api',
     model: () => 'claude-test',
     stream: (opts) => streamClaudeChat({ ...opts, client }),
   };
@@ -212,7 +212,7 @@ test('claude: native tool_use streams as tool_call and history becomes tool_use/
   });
 
   assert.deepEqual(events, [
-    { type: 'start', toolMode: 'native', provider: 'claude', model: 'claude-test' },
+    { type: 'start', toolMode: 'native', provider: 'claude', model: 'claude-test', claudeMode: 'api' },
     { type: 'text', delta: 'Reading it, ' },
     { type: 'text', delta: 'Sir.' },
     { type: 'tool_call', id: 'toolu_01', name: 'read_file', params: { path: 'README.md' } },

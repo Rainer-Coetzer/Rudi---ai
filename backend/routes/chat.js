@@ -3,7 +3,8 @@ import { Ollama } from 'ollama';
 import { getOptimalParams, estimateVRAM_GB } from '../resourceManager.js';
 import { MODEL_CONFIG, listInstalledModels, supportsTools, markNoToolSupport } from '../modelConfig.js';
 import { getRelevantContext } from '../knowledgeStore.js';
-import { isClaudeAvailable, streamClaudeChat, claudeModel } from '../claudeProvider.js';
+import { getClaudeMode, streamClaudeChat, claudeModel } from '../claudeProvider.js';
+import { streamClaudeCliChat } from '../claudeCliProvider.js';
 import { buildBasePrompt } from '../prompt.js';
 import { toOllamaTools } from '../tools.js';
 import {
@@ -47,7 +48,7 @@ function lastUserText(history) {
  */
 export function createChatRouter({
   ollamaClient = new Ollama({ host: 'http://127.0.0.1:11434' }),
-  claude = { isAvailable: isClaudeAvailable, stream: streamClaudeChat, model: claudeModel },
+  claude = { mode: getClaudeMode, stream: streamClaudeChat, streamCli: streamClaudeCliChat, model: claudeModel },
   getContext = getRelevantContext,
   estimateVRAM = estimateVRAM_GB,
 } = {}) {
@@ -73,6 +74,10 @@ export function createChatRouter({
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
     res.flushHeaders();
+
+    // Fires when the renderer aborts (or the socket drops) before we finish.
+    const abort = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) abort.abort(); });
 
     // `history` is everything before this request. `message` is the new user turn;
     // it is empty when the request only carries a tool result at the end of `history`.
@@ -107,10 +112,17 @@ export function createChatRouter({
       buildBasePrompt(toolMode) + modeInstructions + knowledgeContext + memoryContext + "\n\n" + projectContext;
 
     try {
-      if (provider === 'claude' && claude.isAvailable()) {
+      const claudeMode = provider === 'claude' ? await claude.mode() : null;
+
+      if (claudeMode === 'api') {
         console.log(`[CHAT] ${reqTag} Routing to Claude API (native tools)`);
-        emit({ type: 'start', toolMode: 'native', provider: 'claude', model: claude.model() });
+        emit({ type: 'start', toolMode: 'native', provider: 'claude', model: claude.model('api'), claudeMode });
         await claude.stream({ system: systemFor('native'), messages: chatMessages, emit });
+      } else if (claudeMode === 'subscription') {
+        // Claude Code CLI with its own tools off; Rudi's tools use the text protocol.
+        console.log(`[CHAT] ${reqTag} Routing to Claude CLI (subscription, text tools)`);
+        emit({ type: 'start', toolMode: 'text', provider: 'claude', model: claude.model('subscription'), claudeMode });
+        await claude.streamCli({ system: systemFor('text'), messages: chatMessages, emit, signal: abort.signal });
       } else {
         const models = await listInstalledModels(ollamaClient);
         const selectedModel = selectModel(topic, models);
