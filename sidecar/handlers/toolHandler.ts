@@ -11,6 +11,7 @@ import * as Self from '../selfImprove';
 import { privilegedValidateTool } from '../security';
 import { getWorkspaceRoot, getRudiRoot } from '../workspace';
 import { openExternal } from '../platform';
+import type { ToolParams } from '../types';
 
 /**
  * Resolves a tool-supplied path against the active workspace and returns the absolute
@@ -34,7 +35,7 @@ export function resolveInWorkspace(target: string | undefined, { allowRoot = fal
 
 const OUTSIDE_WORKSPACE = { success: false, result: 'Security block: path is outside the active workspace.' };
 
-export async function handleToolExecution(name: string, params: any): Promise<{ success: boolean; result: string }> {
+export async function handleToolExecution(name: string, params: ToolParams): Promise<{ success: boolean; result: string }> {
   // Privileged re-validation — renderer checks are UX only; this is the real gate.
   const gate = privilegedValidateTool(name, params);
   if (!gate.valid) {

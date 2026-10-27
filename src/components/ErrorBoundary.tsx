@@ -27,9 +27,7 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ERROR BOUNDARY]', error, info);
     // Persist to error log via IPC if available
-    if (window.desktopAPI) {
-      (window.desktopAPI as any).appendLog?.('errors', 'ErrorBoundary', error.message);
-    }
+    window.desktopAPI?.appendLog?.('errors', 'ErrorBoundary', error.message);
   }
 
   render() {

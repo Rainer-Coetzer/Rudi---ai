@@ -1,8 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RudiState } from '../hooks/useRudi';
 import type { AutonomyLevel } from '../utils/autonomy';
+
+/** Deterministic PRNG (mulberry32): particle jitter stays the same on every render. */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 interface RudiSphereProps {
   state: RudiState;
@@ -250,8 +262,10 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
   const spinnerRef = useRef<THREE.Points>(null);
   const amplitudeRef = useRef(amplitude);
 
-  // Sync prop to ref on every render to ensure useFrame sees the latest value
-  amplitudeRef.current = amplitude;
+  // Mirror the prop into a ref for useFrame; a layout effect runs before the next frame.
+  useLayoutEffect(() => {
+    amplitudeRef.current = amplitude;
+  }, [amplitude]);
 
   const setFrameloop = useThree((s) => s.setFrameloop);
   const invalidate = useThree((s) => s.invalidate);
@@ -323,27 +337,29 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
 
   const ringParticlesCount = 1000;
   const ringPositions = useMemo(() => {
+    const random = seededRandom(1);
     const pos = new Float32Array(ringParticlesCount * 3);
     for (let i = 0; i < ringParticlesCount; i++) {
-      const angle = (Math.random() * Math.PI * 2);
-      const radius = 1.31 + (Math.random() - 0.5) * 0.02;
+      const angle = (random() * Math.PI * 2);
+      const radius = 1.31 + (random() - 0.5) * 0.02;
       pos[i * 3] = radius * Math.cos(angle);
       pos[i * 3 + 1] = radius * Math.sin(angle);
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 0.02;
+      pos[i * 3 + 2] = (random() - 0.5) * 0.02;
     }
     return pos;
   }, [ringParticlesCount]);
 
   const spinnerParticlesCount = 600;
   const spinnerPositions = useMemo(() => {
+    const random = seededRandom(2);
     const pos = new Float32Array(spinnerParticlesCount * 3);
     for (let i = 0; i < spinnerParticlesCount; i++) {
       // Half circle arc of particles
       const angle = (i / spinnerParticlesCount) * Math.PI;
-      const radius = 1.2 + (Math.random() - 0.5) * 0.04;
+      const radius = 1.2 + (random() - 0.5) * 0.04;
       pos[i * 3] = radius * Math.cos(angle);
       pos[i * 3 + 1] = radius * Math.sin(angle);
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 0.04;
+      pos[i * 3 + 2] = (random() - 0.5) * 0.04;
     }
     return pos;
   }, [spinnerParticlesCount]);

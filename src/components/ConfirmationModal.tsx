@@ -9,22 +9,23 @@ interface ConfirmationModalProps {
 }
 
 export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ pendingTool, onConfirm }) => {
-  const [timeLeft, setTimeLeft] = useState(10);
-  
+  // Seconds left are derived from a ticking clock, so nothing resets in the effect.
+  const [now, setNow] = useState(() => Date.now());
+  const timeLeft = pendingTool
+    ? Math.max(0, Math.ceil((pendingTool.expiresAt - now) / 1000))
+    : 10;
+
   useEffect(() => {
-    if (!pendingTool) {
-      setTimeLeft(10);
-      return;
-    }
-    
+    if (!pendingTool) return;
+
     const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.ceil((pendingTool.expiresAt - Date.now()) / 1000));
-      setTimeLeft(remaining);
-      if (remaining === 0) {
+      const tick = Date.now();
+      setNow(tick);
+      if (tick >= pendingTool.expiresAt) {
         onConfirm(false); // Auto-decline
       }
     }, 1000);
-    
+
     return () => clearInterval(interval);
   }, [pendingTool, onConfirm]);
 

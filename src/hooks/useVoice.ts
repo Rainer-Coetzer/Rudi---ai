@@ -69,7 +69,7 @@ export function useVoice() {
   const animFrameRef = useRef<number | null>(null);
   
   // Performance: Persistent buffer to avoid GC pressure in the 60fps loop
-  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const lastLevelUpdateRef = useRef<number>(performance.now());
   const currentLevelRef = useRef<number>(0);
 
@@ -79,7 +79,9 @@ export function useVoice() {
 
   function getAudioContext() {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioCtx = window.AudioContext
+        ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      audioContextRef.current = new AudioCtx!();
     }
     return audioContextRef.current;
   };
@@ -93,7 +95,7 @@ export function useVoice() {
     }
     const dataArray = dataArrayRef.current;
     
-    analyserRef.current.getByteFrequencyData(dataArray as any);
+    analyserRef.current.getByteFrequencyData(dataArray);
     
     let sum = 0;
     for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
@@ -112,7 +114,7 @@ export function useVoice() {
 
   const stopSpeaking = useCallback(() => {
     if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.stop(); } catch (_) {}
+      try { sourceNodeRef.current.stop(); } catch { /* already stopped */ }
       sourceNodeRef.current = null;
     }
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -121,12 +123,12 @@ export function useVoice() {
   }, []);
 
   const playAudioBuffer = useCallback(async (arrayBuffer: ArrayBuffer): Promise<void> => {
-    return new Promise(async (resolve) => {
-      const ctx = getAudioContext();
+    const ctx = getAudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+    // Decode errors now reject, so the caller falls back to system speech instead of hanging.
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
 
-      if (ctx.state === 'suspended') await ctx.resume();
-
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    return new Promise<void>((resolve) => {
 
       // Setup analysis chain: source → analyser → gain → destination
       const analyser = ctx.createAnalyser();
@@ -164,6 +166,7 @@ export function useVoice() {
 
     return new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
+      let pulse: ReturnType<typeof setInterval> | undefined;
 
       // A German voice reading English text gives Rudi his accent; keep the
       // utterance language English so the words are still read as English.
@@ -176,23 +179,22 @@ export function useVoice() {
       utterance.onstart = () => {
         setIsSpeaking(true);
         // Basic pulsing animation simulation since we can't analyze system speech directly
-        const interval = setInterval(() => {
+        pulse = setInterval(() => {
           setAudioLevel(0.2 + Math.random() * 0.4);
         }, 100);
-        (utterance as any)._pulseInterval = interval;
       };
 
       utterance.onend = () => {
         setIsSpeaking(false);
         setAudioLevel(0);
-        clearInterval((utterance as any)._pulseInterval);
+        clearInterval(pulse);
         resolve();
       };
 
       utterance.onerror = () => {
         setIsSpeaking(false);
         setAudioLevel(0);
-        clearInterval((utterance as any)._pulseInterval);
+        clearInterval(pulse);
         resolve();
       };
 
@@ -225,8 +227,8 @@ export function useVoice() {
 
         await playAudioBuffer(arrayBuffer);
 
-      } catch (err: any) {
-        console.warn('[VOICE] Neural TTS unavailable, falling back to System Speech:', err?.message);
+      } catch (err) {
+        console.warn('[VOICE] Neural TTS unavailable, falling back to System Speech:', err instanceof Error ? err.message : err);
         await speakTextSystem(text);
       }
     }
@@ -252,7 +254,7 @@ export function useVoice() {
     cleaned = cleaned
       .replace(/\[\d{2}:\d{2}:\d{2}\]/g, '') 
       .replace(/[a-zA-Z]:\\[\\\w\s.-]+/g, '')
-      .replace(/\/\w+\/[\/\w\s.-]+/g, '');
+      .replace(/\/\w+\/[/\w\s.-]+/g, '');
 
     if (!cleaned) return;
 

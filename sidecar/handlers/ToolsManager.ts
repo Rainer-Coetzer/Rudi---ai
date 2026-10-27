@@ -4,6 +4,7 @@ import { pathToFileURL } from 'url';
 import { privilegedValidateTool } from '../security';
 import { getRudiRoot, getWorkspaceRoot } from '../workspace';
 import { captureSnapshot, undoLastAction } from '../undo';
+import type { ToolParams } from '../types';
 
 export interface ToolSchema {
   name: string;
@@ -25,7 +26,7 @@ export interface PluginContext {
 const PLUGIN_CONTEXT: PluginContext = { captureSnapshot, undoLastAction };
 
 export interface ToolPlugin extends ToolSchema {
-  execute: (params: any, ctx: PluginContext) => Promise<{ success: boolean; result: string }>;
+  execute: (params: ToolParams, ctx: PluginContext) => Promise<{ success: boolean; result: string }>;
 }
 
 export class ToolsManager {

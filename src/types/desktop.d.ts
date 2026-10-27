@@ -7,14 +7,14 @@ export interface ToolResult {
 
 export interface DesktopAPI {
   /** `confirm` forces the approval dialog even when policy would allow the call. */
-  executeTool(name: string, params: any, options?: { confirm?: boolean }): Promise<ToolResult>;
+  executeTool(name: string, params: Record<string, unknown>, options?: { confirm?: boolean }): Promise<ToolResult>;
   /** Tells the sidecar's approval gate which autonomy level the user picked. */
   setAutonomyLevel?(level: 'observe' | 'assist' | 'autonomous'): Promise<string>;
   onModeChange(callback: (mode: string) => void): void;
   appendLog?(category: string, source: string, message: string): void;
   getLogs?(category: string): Promise<string>;
-  getToolSchemas?(): Promise<any[]>;
-  executeMcpTool?(server: string, tool: string, args: any): Promise<any>;
+  getToolSchemas?(): Promise<unknown[]>;
+  executeMcpTool?(server: string, tool: string, args: Record<string, unknown>): Promise<unknown>;
   getProjectContext?(): Promise<string>;
   // Workspace
   getWorkspace(): Promise<string>;

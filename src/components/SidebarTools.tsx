@@ -186,7 +186,15 @@ export const SidebarTools: React.FC<SidebarToolsProps> = ({ onToolSelect }) => {
   );
 };
 
-const ToolCategory = ({ title, icon, open, toggle, children }: any) => (
+interface ToolCategoryProps {
+  title: string;
+  icon: React.ReactNode;
+  open: boolean;
+  toggle: () => void;
+  children: React.ReactNode;
+}
+
+const ToolCategory = ({ title, icon, open, toggle, children }: ToolCategoryProps) => (
   <div className="flex flex-col">
     <button
       type="button"

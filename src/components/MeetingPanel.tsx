@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, X, RefreshCw, Trash2, ChevronRight, FileText } from 'lucide-react';
-import { safeParse } from '../utils/json';
+import { useToolResult } from '../hooks/useToolResult';
+import type { MeetingNote } from '../types/data';
 
 interface MeetingPanelProps {
   isOpen: boolean;
@@ -9,23 +10,16 @@ interface MeetingPanelProps {
 }
 
 export const MeetingPanel: React.FC<MeetingPanelProps> = ({ isOpen, onClose }) => {
-  const [notes, setNotes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedNote, setSelectedNote] = useState<any>(null);
+  const { data, loading, reload: fetchNotes } = useToolResult<MeetingNote[]>('list_meeting_notes', isOpen);
+  const notes = data ?? [];
+  const [selectedNote, setSelectedNote] = useState<MeetingNote | null>(null);
 
-  const fetchNotes = async () => {
-    if (!window.desktopAPI) return;
-    setLoading(true);
-    try {
-      const res = await window.desktopAPI.executeTool('list_meeting_notes', {});
-      if (res.success) {
-        setNotes(safeParse<any[]>(res.result) ?? []);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    setLoading(false);
-  };
+  // Clear the selection each time the panel opens (adjusting state during render, not in an effect).
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) setSelectedNote(null);
+  }
 
   const deleteNote = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -40,13 +34,6 @@ export const MeetingPanel: React.FC<MeetingPanelProps> = ({ isOpen, onClose }) =
       console.error(err);
     }
   };
-
-  useEffect(() => {
-    if (isOpen) {
-      fetchNotes();
-      setSelectedNote(null);
-    }
-  }, [isOpen]);
 
   return (
     <AnimatePresence>

@@ -8,6 +8,7 @@ import { useAudioAnalyzer } from './useAudioAnalyzer';
 import { useHealthMonitor } from './useHealthMonitor';
 import { ENDPOINTS, UI_CONFIG } from '../utils/config';
 import { safeParse } from '../utils/json';
+import { errorMessage } from '../utils/errors';
 import { splitToolCalls } from '../utils/toolCalls';
 import { createChatStreamParser, type ChatStreamEvent, type HistoryEntry, type HistoryToolCall, type ToolMode } from '../utils/chatStream';
 
@@ -22,7 +23,7 @@ export type RudiState = typeof RudiState[keyof typeof RudiState];
 
 export interface ToolExecution {
   name: string;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
   status: 'pending' | 'running' | 'success' | 'error' | 'blocked' | 'suggested';
   result?: string;
   level?: PermissionLevel;
@@ -73,7 +74,7 @@ export function useRudi() {
   );
 
   const { systemHealth } = useHealthMonitor();
-  const { microphoneLevel, startAnalyzer, stopAnalyzer } = useAudioAnalyzer(state === RudiState.Listening);
+  const { microphoneLevel, startAnalyzer, stopAnalyzer } = useAudioAnalyzer();
 
   const {
     voiceEnabled, setVoiceEnabled,
@@ -269,19 +270,19 @@ export function useRudi() {
 
       sendToolResult(tool, result, false);
 
-    } catch (err: any) {
+    } catch (err) {
       setMessages(prev => prev.map(msg =>
         msg.id === messageId && msg.toolExecution
-          ? { ...msg, toolExecution: { ...msg.toolExecution, status: 'error', result: err.message } }
+          ? { ...msg, toolExecution: { ...msg.toolExecution, status: 'error', result: errorMessage(err) } }
           : msg
       ));
-      logAction(`ERROR: ${tool.name} — ${err.message}`, 'ERROR');
+      logAction(`ERROR: ${tool.name} — ${errorMessage(err)}`, 'ERROR');
       setGlobalToolStatus('error');
-      speakText(`Apologies, Sir. The operation failed: ${err.message}`);
+      speakText(`Apologies, Sir. The operation failed: ${errorMessage(err)}`);
 
       const errorResult = autonomyLevel === 'autonomous'
-        ? `${err.message}\n\n[SYSTEM: Sir, the operation failed. Please analyze what went wrong, explain the mistake to the Director, and record a "lesson" memory of this pattern before deciding on the next course of action.]`
-        : err.message;
+        ? `${errorMessage(err)}\n\n[SYSTEM: Sir, the operation failed. Please analyze what went wrong, explain the mistake to the Director, and record a "lesson" memory of this pattern before deciding on the next course of action.]`
+        : errorMessage(err);
       sendToolResult(tool, errorResult, true);
     }
 
@@ -313,8 +314,8 @@ export function useRudi() {
       } else {
         logAction(`UNDO FAILED: ${res.result}`, 'ERROR');
       }
-    } catch (err: any) {
-      logAction(`UNDO ERROR: ${err.message}`, 'ERROR');
+    } catch (err) {
+      logAction(`UNDO ERROR: ${errorMessage(err)}`, 'ERROR');
     }
   };
 
@@ -366,9 +367,9 @@ export function useRudi() {
       try {
         const memRes = await window.desktopAPI.executeTool('list_memories', {});
         if (memRes.success) {
-          const rawMems = safeParse<any[]>(memRes.result);
+          const rawMems = safeParse<{ type: string; content: string }[]>(memRes.result);
           if (Array.isArray(rawMems)) {
-            memories = rawMems.slice(-5).map((m: any) => `[RECALL: ${m.type.toUpperCase()}] ${m.content}`);
+            memories = rawMems.slice(-5).map(m => `[RECALL: ${m.type.toUpperCase()}] ${m.content}`);
           }
         }
         
@@ -489,8 +490,8 @@ export function useRudi() {
       if (toolCall) executeToolCall(rudiMsgId, toolCall);
       speakText(stripForSpeech(textContent));
 
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
+    } catch (err) {
+      if ((err as { name?: string } | null)?.name === 'AbortError') {
         setState(RudiState.Idle);
         return;
       }
@@ -499,7 +500,7 @@ export function useRudi() {
       setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'rudi', text: errMsg, timestamp: Date.now() }]);
       speakText(errMsg);
     }
-  }, [state, autonomyLevel, speakText, startSTT, stopSTT, startAnalyzer, stopAnalyzer, stopAllSpeech, executeToolCall]);
+  }, [state, autonomyLevel, provider, speakText, startSTT, stopSTT, startAnalyzer, stopAnalyzer, stopAllSpeech, executeToolCall]);
 
   const cancelCurrentTask = useCallback(() => {
     if (abortControllerRef.current) {

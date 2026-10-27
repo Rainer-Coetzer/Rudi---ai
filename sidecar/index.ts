@@ -17,11 +17,12 @@ import { handleToolExecution } from './handlers/toolHandler';
 import { ToolsManager } from './handlers/ToolsManager';
 import { McpManager } from './mcpManager';
 import { gate, resolveApproval, setAutonomyLevel } from './policy';
+import type { ToolParams } from './types';
 
 const toolsManager = ToolsManager.getInstance();
 const mcpManager = McpManager.getInstance();
 
-type Handler = (params: any) => unknown | Promise<unknown>;
+type Handler = (params: ToolParams) => unknown | Promise<unknown>;
 
 const handlers: Record<string, Handler> = {
   async executeTool({ name, params = {}, confirm }) {

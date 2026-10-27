@@ -3,17 +3,21 @@ import { pipeline, env } from '@xenova/transformers';
 // Configure transformers to not look for local model files but rather HuggingFace (cached)
 env.allowLocalModels = false;
 
-class WhisperPipeline {
-  static task = 'automatic-speech-recognition';
-  static model = 'Xenova/whisper-tiny.en';
-  static instance: any = null;
+type ProgressCallback = (progress: unknown) => void;
+type Transcriber = (audio: Float32Array, options: Record<string, unknown>) => Promise<{ text: string }>;
 
-  static async getInstance(progress_callback?: Function) {
+const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+class WhisperPipeline {
+  static model = 'Xenova/whisper-tiny.en';
+  static instance: Promise<Transcriber> | null = null;
+
+  static async getInstance(progress_callback?: ProgressCallback) {
     if (this.instance === null) {
-      this.instance = pipeline(this.task as any, this.model, { 
+      this.instance = pipeline('automatic-speech-recognition', this.model, {
         progress_callback,
         quantized: true // Use INT8 for much faster inference
-      });
+      }) as unknown as Promise<Transcriber>;
     }
     return this.instance;
   }
@@ -23,12 +27,12 @@ self.addEventListener('message', async (event) => {
   if (event.data.type === 'load') {
     self.postMessage({ status: 'loading' });
     try {
-      await WhisperPipeline.getInstance((progress: any) => {
+      await WhisperPipeline.getInstance((progress) => {
         self.postMessage({ status: 'progress', data: progress });
       });
       self.postMessage({ status: 'ready' });
-    } catch (e: any) {
-      self.postMessage({ status: 'error', error: e.message });
+    } catch (e) {
+      self.postMessage({ status: 'error', error: errorMessage(e) });
     }
   } else if (event.data.type === 'transcribe') {
     const pcmAudio = event.data.audio;
@@ -43,8 +47,8 @@ self.addEventListener('message', async (event) => {
         return_timestamps: false
       });
       self.postMessage({ status: 'complete', text: result.text });
-    } catch (e: any) {
-      self.postMessage({ status: 'error', error: e.message });
+    } catch (e) {
+      self.postMessage({ status: 'error', error: errorMessage(e) });
     }
   }
 });

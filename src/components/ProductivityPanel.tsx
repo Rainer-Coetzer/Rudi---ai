@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckSquare, Calendar, X, RefreshCw, FileText } from 'lucide-react';
-import { safeParse } from '../utils/json';
+import { useToolResult } from '../hooks/useToolResult';
+import type { CalendarEvent, Task } from '../types/data';
 
 interface ProductivityPanelProps {
   isOpen: boolean;
@@ -9,32 +10,16 @@ interface ProductivityPanelProps {
 }
 
 export const ProductivityPanel: React.FC<ProductivityPanelProps> = ({ isOpen, onClose }) => {
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const fetchData = async () => {
-    if (!window.desktopAPI) return;
-    setLoading(true);
-    try {
-      const taskRes = await window.desktopAPI.executeTool('list_tasks', {});
-      if (taskRes.success) setTasks(safeParse<any[]>(taskRes.result) ?? []);
-
-      const evtRes = await window.desktopAPI.executeTool('get_upcoming_events', {});
-      if (evtRes.success && evtRes.result !== 'No upcoming events.') {
-        setEvents(safeParse<any[]>(evtRes.result) ?? []);
-      } else {
-        setEvents([]);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    setLoading(false);
+  const taskQuery = useToolResult<Task[]>('list_tasks', isOpen);
+  // The tool is `upcoming_events`; the old `get_upcoming_events` name was never whitelisted.
+  const eventQuery = useToolResult<CalendarEvent[]>('upcoming_events', isOpen);
+  const tasks = taskQuery.data ?? [];
+  const events = eventQuery.data ?? [];
+  const loading = taskQuery.loading || eventQuery.loading;
+  const fetchData = () => {
+    taskQuery.reload();
+    eventQuery.reload();
   };
-
-  useEffect(() => {
-    if (isOpen) fetchData();
-  }, [isOpen]);
 
   return (
     <AnimatePresence>
