@@ -17,8 +17,9 @@ static DAEMON: Mutex<Option<Child>> = Mutex::new(None);
 
 pub fn shutdown() {
     if let Some(mut child) = DAEMON.lock().unwrap().take() {
-        eprintln!("[OLLAMA] Stopping daemon...");
+        // Kill before logging — see backend::shutdown.
         let _ = child.kill();
+        eprintln!("[OLLAMA] Stopped daemon.");
     }
 }
 

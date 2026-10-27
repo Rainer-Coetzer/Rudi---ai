@@ -90,8 +90,10 @@ pub fn spawn(app: &AppHandle) {
 
 pub fn shutdown() {
     if let Some(mut child) = SERVER.lock().unwrap().take() {
-        eprintln!("[BACKEND] Stopping...");
+        // Kill before logging: eprintln! panics if stderr is a broken pipe
+        // (e.g. the dev terminal went away), which would skip the kill.
         let _ = child.kill();
         let _ = child.wait();
+        eprintln!("[BACKEND] Stopped.");
     }
 }
