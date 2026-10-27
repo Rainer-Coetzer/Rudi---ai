@@ -14,7 +14,8 @@ use tauri_plugin_global_shortcut::ShortcutState;
 
 const GHOST_HOTKEY: &str = "CommandOrControl+Alt+R";
 
-/// Sidecar methods the renderer may call — mirrors the old preload bridge.
+/// Sidecar methods the renderer may call. `confirmResult` is deliberately absent:
+/// only the shell's native approval dialog may answer the sidecar's approval gate.
 const RENDERER_METHODS: &[&str] = &[
     "executeTool",
     "appendLog",
@@ -24,6 +25,7 @@ const RENDERER_METHODS: &[&str] = &[
     "getProjectContext",
     "getWorkspace",
     "setWorkspace",
+    "setAutonomyLevel",
 ];
 
 #[tauri::command]

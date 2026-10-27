@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { ENDPOINTS } from '../utils/config';
 
 export interface VoiceState {
   voiceEnabled: boolean;
@@ -7,7 +8,7 @@ export interface VoiceState {
   volume: number;
 }
 
-const TTS_ENDPOINT = 'http://localhost:3001/api/tts';
+const TTS_ENDPOINT = ENDPOINTS.TTS;
 
 export function useVoice() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);

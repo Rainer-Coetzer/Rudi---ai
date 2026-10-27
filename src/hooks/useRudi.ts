@@ -8,6 +8,7 @@ import { useAudioAnalyzer } from './useAudioAnalyzer';
 import { useHealthMonitor } from './useHealthMonitor';
 import { ENDPOINTS, UI_CONFIG } from '../utils/config';
 import { safeParse } from '../utils/json';
+import { splitToolCalls } from '../utils/toolCalls';
 
 export const RudiState = {
   Idle:      'idle',
@@ -79,6 +80,12 @@ export function useRudi() {
       sendMessage(text);
     }
   });
+
+  // The sidecar's approval gate enforces the level; keep it in sync with the UI.
+  useEffect(() => {
+    window.desktopAPI?.setAutonomyLevel?.(autonomyLevel).catch(err =>
+      console.error('[AUTONOMY] Failed to sync level to desktop shell:', err));
+  }, [autonomyLevel]);
 
   useEffect(() => {
     if (voiceEnabled) startSTT();
@@ -159,9 +166,18 @@ export function useRudi() {
       return;
     }
 
+    const modelAskedToConfirm = parsedTool.requiresConfirmation === true;
+
+    // Desktop: the sidecar decides and shows a native approval dialog when needed.
+    if (window.desktopAPI) {
+      await runTool(messageId, toolExec, modelAskedToConfirm);
+      return;
+    }
+
+    // Browser preview only (execution is simulated): approximate the same policy in-page.
     const isDangerous = toolExec.level === 'dangerous';
-    const needsConfirm = isDangerous 
-      || parsedTool.requiresConfirmation === true
+    const needsConfirm = isDangerous
+      || modelAskedToConfirm
       || requiresConfirmation(toolExec.name, autonomyLevel);
 
     if (needsConfirm) {
@@ -187,7 +203,7 @@ export function useRudi() {
     setTimeout(() => setGlobalToolStatus('idle'), 2500);
   };
 
-  const runTool = async (messageId: string, tool: ToolExecution, wasConfirmed: boolean) => {
+  const runTool = async (messageId: string, tool: ToolExecution, confirm: boolean) => {
     setState(RudiState.Executing);
     setGlobalToolStatus('running');
 
@@ -200,7 +216,12 @@ export function useRudi() {
     try {
       let result = '';
       if (window.desktopAPI) {
-        const res = await window.desktopAPI.executeTool(tool.name, tool.params);
+        const res = await window.desktopAPI.executeTool(tool.name, tool.params, { confirm });
+        if (res.blocked) {
+          blockTool(messageId, tool, res.result);
+          setState(RudiState.Idle);
+          return;
+        }
         if (!res.success) throw new Error(res.result);
         result = res.result;
       } else {
@@ -214,7 +235,7 @@ export function useRudi() {
           : msg
       ));
 
-      logAction(`${tool.name}`, wasConfirmed ? 'CONFIRMED' : 'SAFE');
+      logAction(`${tool.name}`, confirm ? 'CONFIRMED' : 'SAFE');
       setGlobalToolStatus('success');
 
       if (result && result.length < 200) {
@@ -359,91 +380,42 @@ export function useRudi() {
       setMessages(prev => [...prev, { id: rudiMsgId, sender: 'rudi', text: '', timestamp: Date.now() }]);
 
       let accumulatedBuffer = '';
-      let textContent       = '';
-      let jsonContent       = '';
-      let braceCount        = 0;
-      let inJsonBlock       = false;
-      let insideString      = false;
-      let lastEscaped       = false;
-      let lastProcessedIndex = 0;
+      let shownText         = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        accumulatedBuffer += chunk;
+        accumulatedBuffer += decoder.decode(value, { stream: true });
 
-        for (let i = lastProcessedIndex; i < accumulatedBuffer.length; i++) {
-          const char = accumulatedBuffer[i];
-          if (char === '`') continue; 
-          if (char === '"' && !lastEscaped) insideString = !insideString;
-          lastEscaped = (char === '\\' && !lastEscaped);
-
-          if (!insideString) {
-            if (char === '{') {
-              if (braceCount === 0) inJsonBlock = true;
-              braceCount++;
-            } else if (char === '}') {
-              braceCount--;
-              if (braceCount === 0 && inJsonBlock) {
-                jsonContent += char;
-                inJsonBlock = false;
-                continue;
-              }
-            }
-          }
-
-          if (inJsonBlock) {
-            jsonContent += char;
-          } else if (braceCount === 0 && !inJsonBlock) {
-            textContent += char;
-          }
-        }
-        lastProcessedIndex = accumulatedBuffer.length;
-
-        if (textContent.trim()) {
+        const { text } = splitToolCalls(accumulatedBuffer, false);
+        if (text && text !== shownText) {
+          shownText = text;
           setMessages(prev => prev.map(msg =>
-            msg.id === rudiMsgId ? { ...msg, text: formatRudiResponse(textContent) } : msg
+            msg.id === rudiMsgId ? { ...msg, text: formatRudiResponse(text) } : msg
           ));
         }
       }
 
       setState(RudiState.Idle);
 
-      if (jsonContent) {
-        try {
-          const firstBrace = jsonContent.indexOf('{');
-          const lastBrace  = jsonContent.lastIndexOf('}') + 1;
-          const parsed     = safeParse<any>(jsonContent.substring(firstBrace, lastBrace));
-          if (!parsed) throw new Error('Unparseable tool JSON');
+      const { text: finalText, calls } = splitToolCalls(accumulatedBuffer, true);
+      let textContent = finalText;
+      for (const call of calls) {
+        if (call.message && !textContent.includes(call.message)) {
+          textContent = textContent ? `${textContent}
 
-          if (parsed.message && !textContent.includes(parsed.message)) {
-            textContent += '\n\n' + parsed.message;
-            setMessages(prev => prev.map(msg =>
-              msg.id === rudiMsgId ? { ...msg, text: formatRudiResponse(textContent) } : msg
-            ));
-          }
-
-          if (parsed.tool) {
-            executeToolCall(rudiMsgId, parsed);
-          }
-
-          conversationHistory.current.push({ role: 'assistant', content: textContent });
-          speakText(stripForSpeech(parsed.message || textContent));
-
-        } catch {
-          const finalClean = accumulatedBuffer.replace(/[{}[\]]/g, '').trim();
-          conversationHistory.current.push({ role: 'assistant', content: finalClean });
-          setMessages(prev => prev.map(msg =>
-            msg.id === rudiMsgId ? { ...msg, text: formatRudiResponse(finalClean) } : msg
-          ));
-          speakText(stripForSpeech(finalClean));
+${call.message}` : call.message;
         }
-      } else {
-        conversationHistory.current.push({ role: 'assistant', content: textContent });
-        speakText(stripForSpeech(textContent));
       }
+      setMessages(prev => prev.map(msg =>
+        msg.id === rudiMsgId ? { ...msg, text: formatRudiResponse(textContent) } : msg
+      ));
+      conversationHistory.current.push({ role: 'assistant', content: textContent });
+
+      const toolCall = calls.find(c => c.tool);
+      if (toolCall) executeToolCall(rudiMsgId, toolCall);
+      speakText(stripForSpeech(textContent));
 
     } catch (err: any) {
       if (err?.name === 'AbortError') {

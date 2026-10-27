@@ -7,6 +7,7 @@ import { useRudi, RudiState, type Provider } from '../hooks/useRudi';
 import { AutonomyColors, AutonomyLabels } from '../utils/autonomy';
 import type { AutonomyLevel } from '../utils/autonomy';
 import { RudiSphere } from './RudiSphere';
+import { ENDPOINTS } from '../utils/config';
 import { SidebarTools } from './SidebarTools';
 import { ChatPanel } from './ChatPanel';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -78,7 +79,7 @@ export const AppLayout: React.FC = () => {
             // If it's a PDF, ingest it directly
             if (a.file.name.toLowerCase().endsWith('.pdf')) {
               try {
-                await fetch('http://localhost:3001/api/ingest', {
+                await fetch(ENDPOINTS.INGEST, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ data: base64Data, filename: a.file.name, type: 'pdf' })
@@ -174,18 +175,19 @@ export const AppLayout: React.FC = () => {
     <div className={`relative w-full h-screen bg-black overflow-hidden flex flex-col font-sans text-white select-none`}>
 
       {!isBrowser && (
+        // Tauri drag region: buttons inside still click normally; double-click toggles maximize.
         <div
+          data-tauri-drag-region="deep"
           className="flex items-center justify-between w-full h-9 px-3 bg-black/80 border-b border-white/5 flex-shrink-0"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
         >
-          <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-cyan-400 glow-cyan" />
             <span className="text-[10px] font-extrabold tracking-[0.3em] uppercase text-white/90 display-font">RUDI OS</span>
           </div>
 
           <div className="flex-1" />
 
-          <div className="flex items-center gap-1 z-[200]" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div className="flex items-center gap-1 z-[200]">
             <button
               onClick={() => window.desktopAPI?.windowMinimize()}
               className="w-10 h-8 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white/80 transition-colors"
@@ -217,7 +219,7 @@ export const AppLayout: React.FC = () => {
       {isBrowser && (
         <div className="w-full z-[100] bg-orange-600/90 backdrop-blur-md text-[10px] py-1.5 px-4 text-center font-bold tracking-widest uppercase flex items-center justify-center gap-4 flex-shrink-0">
           <span>⚠️ BROWSER MODE — System Commands Disabled</span>
-          <span className="opacity-60 font-medium">Use the Electron app for full capability.</span>
+          <span className="opacity-60 font-medium">Run the desktop app (npm run app:dev) for full capability.</span>
         </div>
       )}
 

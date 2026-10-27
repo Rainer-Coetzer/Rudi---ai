@@ -1,5 +1,15 @@
+export interface ToolResult {
+  success: boolean;
+  result: string;
+  /** Stopped by the sidecar's security rules or declined in the approval dialog. */
+  blocked?: boolean;
+}
+
 export interface DesktopAPI {
-  executeTool(name: string, params: any): Promise<{ success: boolean; result: string }>;
+  /** `confirm` forces the approval dialog even when policy would allow the call. */
+  executeTool(name: string, params: any, options?: { confirm?: boolean }): Promise<ToolResult>;
+  /** Tells the sidecar's approval gate which autonomy level the user picked. */
+  setAutonomyLevel?(level: 'observe' | 'assist' | 'autonomous'): Promise<string>;
   onModeChange(callback: (mode: string) => void): void;
   appendLog?(category: string, source: string, message: string): void;
   getLogs?(category: string): Promise<string>;

@@ -34,7 +34,7 @@ const ChatMessageItem = React.memo<{ msg: ChatMessage; devMode?: boolean }>(({ m
       {msg.text !== undefined && (
         <motion.div
           layout
-          className={`text-xs py-2.5 px-3.5 max-w-[90%] leading-relaxed tracking-wide shadow-lg ${
+          className={`text-xs py-2.5 px-3.5 max-w-[90%] leading-relaxed tracking-wide shadow-lg whitespace-pre-wrap break-words ${
             msg.sender === 'user'
               ? 'glass-panel rounded-2xl rounded-tr-sm text-white/90'
               : 'bg-gradient-to-br from-cyan-950/80 to-blue-950/60 text-white border border-cyan-500/30 rounded-2xl rounded-tl-sm shadow-[0_0_15px_rgba(34,211,238,0.1)]'

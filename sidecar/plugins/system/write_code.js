@@ -28,9 +28,10 @@ export default {
   autonomy: 'assist',
   
   execute: async (params) => {
-    const filePath = params.path;
     const root = params.__root || process.cwd();
-    if (!validatePath(filePath, root)) return { success: false, result: 'Security block: Path traversal detected.' };
+    if (!validatePath(params.path, root)) return { success: false, result: 'Security block: Path traversal detected.' };
+    // Write to the resolved path; the raw one would be relative to the sidecar's cwd.
+    const filePath = path.resolve(root, params.path);
     
     const dir = path.dirname(filePath);
     await fs.mkdir(dir, { recursive: true });

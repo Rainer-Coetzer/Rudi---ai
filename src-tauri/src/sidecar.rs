@@ -9,6 +9,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::oneshot;
 
@@ -135,10 +136,41 @@ fn on_event(app: &AppHandle, event: &str, payload: Value) {
                 eprintln!("[SIDECAR] notification failed: {e}");
             }
         }
+        "confirm" => ask_approval(app, payload),
         other => {
             let _ = app.emit(&format!("sidecar:{other}"), payload);
         }
     }
+}
+
+/// Shows the sidecar's approval request as a native dialog — outside the webview,
+/// so neither the renderer nor model output can answer it.
+fn ask_approval(app: &AppHandle, payload: Value) {
+    let Some(id) = payload.get("id").and_then(Value::as_u64) else { return };
+    let title = payload.get("title").and_then(Value::as_str).unwrap_or("Allow this action?");
+    let detail = payload.get("detail").and_then(Value::as_str).unwrap_or("");
+
+    let mut dialog = app
+        .dialog()
+        .message(detail)
+        .title(title)
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom("Allow".into(), "Deny".into()));
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.unminimize();
+        let _ = main.set_focus();
+        dialog = dialog.parent(&main);
+    }
+
+    let handle = app.clone();
+    dialog.show(move |approved| {
+        let Some(sidecar) = handle.try_state::<Arc<Sidecar>>().map(|s| s.inner().clone()) else {
+            return;
+        };
+        tauri::async_runtime::spawn(async move {
+            let _ = sidecar.call("confirmResult", json!({ "id": id, "approved": approved })).await;
+        });
+    });
 }
 
 /// Fire-and-forget activity log entry, written by the sidecar's logger.

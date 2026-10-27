@@ -12,18 +12,25 @@ import { privilegedValidateTool } from '../security';
 import { getWorkspaceRoot, getRudiRoot } from '../workspace';
 import { openExternal } from '../platform';
 
-function validatePath(filePath: string): boolean {
-  if (!filePath) return false;
+/**
+ * Resolves a tool-supplied path against the active workspace and returns the absolute
+ * path, or null if it escapes the workspace. Always operate on the returned path —
+ * a raw relative path would resolve against the sidecar's own working directory.
+ */
+function resolveInWorkspace(target: string | undefined, { allowRoot = false } = {}): string | null {
+  if (!target || target.includes('"')) return null;
   try {
     const root = getWorkspaceRoot();
-    const resolvedPath = path.resolve(root, filePath);
-    const relative = path.relative(root, resolvedPath);
-    // Block if it goes outside the active workspace root
-    return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+    const resolved = path.resolve(root, target);
+    const relative = path.relative(root, resolved);
+    if (relative === '') return allowRoot ? resolved : null;
+    return !relative.startsWith('..') && !path.isAbsolute(relative) ? resolved : null;
   } catch {
-    return false;
+    return null;
   }
 }
+
+const OUTSIDE_WORKSPACE = { success: false, result: 'Security block: path is outside the active workspace.' };
 
 export async function handleToolExecution(name: string, params: any): Promise<{ success: boolean; result: string }> {
   // Privileged re-validation — renderer checks are UX only; this is the real gate.
@@ -57,9 +64,9 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
 
       case 'create_file':
       case 'write_code': {
-        const filePath = params.path || params.file;
-        if (!validatePath(filePath)) return { success: false, result: 'Security block: Path traversal detected.' };
-        
+        const filePath = resolveInWorkspace(params.path || params.file);
+        if (!filePath) return OUTSIDE_WORKSPACE;
+
         const dir = path.dirname(filePath);
         await fs.promises.mkdir(dir, { recursive: true });
         captureSnapshot(filePath, 'write');
@@ -69,30 +76,32 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
       }
 
       case 'read_file': {
-        const filePath = params.path || params.file;
-        if (!validatePath(filePath)) return { success: false, result: 'Security block: Path traversal detected.' };
+        const filePath = resolveInWorkspace(params.path || params.file);
+        if (!filePath) return OUTSIDE_WORKSPACE;
         const content = await fs.promises.readFile(filePath, 'utf-8');
         return { success: true, result: content };
       }
 
       case 'list_dir': {
-        const dirPath = params.path || '.';
+        const dirPath = resolveInWorkspace(params.path || '.', { allowRoot: true });
+        if (!dirPath) return OUTSIDE_WORKSPACE;
         const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
         const list = entries.map(e => `${e.isDirectory() ? '📁' : '📄'} ${e.name}`).join('\n');
         return { success: true, result: list || 'Directory is empty.' };
       }
 
       case 'delete_file': {
-        const filePath = params.path || params.file;
-        if (!validatePath(filePath)) return { success: false, result: 'Security block: Path traversal detected.' };
+        const filePath = resolveInWorkspace(params.path || params.file);
+        if (!filePath) return OUTSIDE_WORKSPACE;
         captureSnapshot(filePath, 'delete');
         await fs.promises.unlink(filePath);
         return { success: true, result: `Deleted ${filePath}.` };
       }
 
       case 'run_terminal': {
+        const cwd = resolveInWorkspace(params.cwd || '.', { allowRoot: true });
+        if (!cwd) return OUTSIDE_WORKSPACE;
         return new Promise((resolve) => {
-          const cwd = params.cwd || getWorkspaceRoot();
           child_process.exec(params.command, { cwd, shell: 'powershell.exe' }, (error, stdout, stderr) => {
             if (error) resolve({ success: false, result: stderr || error.message });
             else resolve({ success: true, result: stdout || 'Command executed successfully.' });
@@ -112,7 +121,7 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
       // ── Git ───────────────────────────────────────────────────────────────
       case 'git_status': {
         return new Promise((resolve) => {
-          child_process.exec('git status --short', (error, stdout) => {
+          child_process.exec('git status --short', { cwd: getWorkspaceRoot() }, (error, stdout) => {
             if (error) resolve({ success: false, result: 'Not a git repository.' });
             else resolve({ success: true, result: stdout || 'Clean repository.' });
           });
@@ -133,7 +142,8 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
 
       // ── VS Code ───────────────────────────────────────────────────────────
       case 'open_vscode': {
-        const dir = params.path || '.';
+        const dir = resolveInWorkspace(params.path || '.', { allowRoot: true });
+        if (!dir) return OUTSIDE_WORKSPACE;
         return new Promise((resolve) => {
           child_process.exec(`code "${dir}"`, (error) => {
             if (error) resolve({ success: false, result: 'VS Code launch failed.' });
@@ -143,7 +153,8 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
       }
 
       case 'open_vscode_file': {
-        const filePath = params.path || params.file;
+        const filePath = resolveInWorkspace(params.path || params.file);
+        if (!filePath) return OUTSIDE_WORKSPACE;
         return new Promise((resolve) => {
           child_process.exec(`code "${filePath}"`, (error) => {
             if (error) resolve({ success: false, result: 'Failed to open file in VS Code.' });
@@ -219,7 +230,7 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
       case 'git_commit': {
         return new Promise((resolve) => {
           const msg = (params.message || 'Updated by Rudi Agent').replace(/"/g, '\\"');
-          child_process.exec(`git add . && git commit -m "${msg}"`, (error, stdout, stderr) => {
+          child_process.exec(`git add . && git commit -m "${msg}"`, { cwd: getWorkspaceRoot() }, (error, stdout, stderr) => {
             if (error) resolve({ success: false, result: stderr || error.message });
             else resolve({ success: true, result: stdout || 'Committed changes.' });
           });
@@ -228,7 +239,7 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
 
       case 'git_push': {
         return new Promise((resolve) => {
-          child_process.exec(`git push`, (error, stdout, stderr) => {
+          child_process.exec(`git push`, { cwd: getWorkspaceRoot() }, (error, stdout, stderr) => {
             if (error) resolve({ success: false, result: stderr || error.message });
             else resolve({ success: true, result: stdout || 'Pushed successfully.' });
           });

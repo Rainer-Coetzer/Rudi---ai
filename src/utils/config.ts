@@ -3,7 +3,8 @@
  * Centralizing URLs to allow for easier staging/production transitions
  */
 
-export const API_BASE = 'http://localhost:3001/api';
+// 127.0.0.1, not localhost: the backend binds to IPv4 loopback only.
+export const API_BASE = 'http://127.0.0.1:3001/api';
 
 export const ENDPOINTS = {
   CHAT: `${API_BASE}/chat`,

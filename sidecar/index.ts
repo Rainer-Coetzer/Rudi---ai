@@ -16,6 +16,7 @@ import { getWorkspaceRoot, setWorkspaceRoot } from './workspace';
 import { handleToolExecution } from './handlers/toolHandler';
 import { ToolsManager } from './handlers/ToolsManager';
 import { McpManager } from './mcpManager';
+import { gate, resolveApproval, setAutonomyLevel } from './policy';
 
 const toolsManager = ToolsManager.getInstance();
 const mcpManager = McpManager.getInstance();
@@ -23,7 +24,9 @@ const mcpManager = McpManager.getInstance();
 type Handler = (params: any) => unknown | Promise<unknown>;
 
 const handlers: Record<string, Handler> = {
-  async executeTool({ name, params }) {
+  async executeTool({ name, params = {}, confirm }) {
+    const blocked = await gate(name, params, confirm === true);
+    if (blocked) return blocked;
     // Try dynamic plugins first, then the legacy hardcoded tools.
     if (toolsManager.getTool(name)) return toolsManager.executeTool(name, params);
     return handleToolExecution(name, params);
@@ -54,8 +57,20 @@ const handlers: Record<string, Handler> = {
     return [...internalTools, ...formattedMcp];
   },
 
-  executeMcpTool({ server, tool, args }) {
+  async executeMcpTool({ server, tool, args = {} }) {
+    const blocked = await gate(`mcp:${server}/${tool}`, args);
+    if (blocked) return blocked;
     return mcpManager.callTool(server, tool, args);
+  },
+
+  setAutonomyLevel({ level }) {
+    return setAutonomyLevel(level);
+  },
+
+  // Shell-only: the user's answer from the native approval dialog.
+  // Not in the renderer allowlist (src-tauri/src/main.rs → RENDERER_METHODS).
+  confirmResult({ id, approved }) {
+    return resolveApproval(id, approved);
   },
 
   getProjectContext() {

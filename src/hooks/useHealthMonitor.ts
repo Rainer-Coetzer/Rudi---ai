@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { ENDPOINTS } from '../utils/config';
 
 export interface SystemHealth {
   ollama: 'ready' | 'unavailable' | 'checking';
@@ -8,7 +9,7 @@ export interface SystemHealth {
   currentMode?: string;
 }
 
-const HEALTH_CHECK_URL = 'http://localhost:3001/api/health';
+const HEALTH_CHECK_URL = ENDPOINTS.HEALTH;
 
 export function useHealthMonitor() {
   const [systemHealth, setSystemHealth] = useState<SystemHealth>({
@@ -19,7 +20,7 @@ export function useHealthMonitor() {
   });
 
   useEffect(() => {
-    // Listen for platform mode changes (Electron specific)
+    // Listen for active-window mode changes from the desktop shell
     if (window.desktopAPI?.onModeChange) {
       window.desktopAPI.onModeChange((newMode: string) => {
         setSystemHealth(prev => ({ ...prev, currentMode: newMode }));

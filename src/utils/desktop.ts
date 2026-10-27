@@ -13,7 +13,8 @@ const sidecar = <T>(method: string, params: Record<string, unknown> = {}) =>
 
 const desktopAPI: DesktopAPI = {
   // ── Core Tool Execution ──────────────────────────────────────────────────
-  executeTool: (name, params) => sidecar('executeTool', { name, params }),
+  executeTool: (name, params, options) => sidecar('executeTool', { name, params, confirm: options?.confirm }),
+  setAutonomyLevel: (level) => sidecar('setAutonomyLevel', { level }),
   onModeChange: (callback) => {
     void listen<string>('active-mode-changed', (e) => callback(e.payload));
   },
