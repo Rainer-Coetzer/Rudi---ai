@@ -9,6 +9,7 @@ import { useHealthMonitor } from './useHealthMonitor';
 import { ENDPOINTS, UI_CONFIG } from '../utils/config';
 import { safeParse } from '../utils/json';
 import { splitToolCalls } from '../utils/toolCalls';
+import { createChatStreamParser, type ChatStreamEvent, type HistoryEntry, type HistoryToolCall, type ToolMode } from '../utils/chatStream';
 
 export const RudiState = {
   Idle:      'idle',
@@ -25,6 +26,8 @@ export interface ToolExecution {
   status: 'pending' | 'running' | 'success' | 'error' | 'blocked' | 'suggested';
   result?: string;
   level?: PermissionLevel;
+  /** Id the model gave this call; its result goes back to the model under the same id. */
+  callId?: string;
 }
 
 export interface ChatMessage {
@@ -49,6 +52,13 @@ export interface PendingTool {
 }
 
 export type Provider = 'ollama' | 'claude';
+
+interface RequestedTool {
+  id: string;
+  tool: string;
+  params: Record<string, unknown>;
+  requiresConfirmation?: boolean;
+}
 
 export function useRudi() {
   const [state, setState]                           = useState<RudiState>(RudiState.Idle);
@@ -92,7 +102,7 @@ export function useRudi() {
     else stopSTT();
   }, [voiceEnabled, startSTT, stopSTT]);
 
-  const conversationHistory = useRef<{ role: string; content: string }[]>([]);
+  const conversationHistory = useRef<HistoryEntry[]>([]);
   const actionTimes         = useRef<number[]>([]);
   const abortControllerRef  = useRef<AbortController | null>(null);
 
@@ -133,12 +143,25 @@ export function useRudi() {
     return true;
   };
 
-  const executeToolCall = async (messageId: string, parsedTool: any) => {
+  /** Adds a tool's outcome to the history; it reaches the model with the next request. */
+  const recordToolResult = (tool: ToolExecution, content: string, isError: boolean) => {
+    if (!tool.callId) return;
+    conversationHistory.current.push({ role: 'tool', toolCallId: tool.callId, name: tool.name, content, isError });
+  };
+
+  /** Records the result and asks the model to continue from it. */
+  const sendToolResult = (tool: ToolExecution, content: string, isError: boolean) => {
+    recordToolResult(tool, content, isError);
+    setTimeout(() => sendMessage('', [], true), 1000);
+  };
+
+  const executeToolCall = async (messageId: string, parsedTool: RequestedTool) => {
     const toolExec: ToolExecution = {
       name:   parsedTool.tool,
       params: parsedTool.params || {},
       status: 'pending',
       level:  getPermissionLevel(parsedTool.tool),
+      callId: parsedTool.id,
     };
 
     setMessages(prev => prev.map(msg =>
@@ -152,6 +175,7 @@ export function useRudi() {
           : msg
       ));
       logAction(`SUGGESTED: ${toolExec.name}`, 'SUGGESTED');
+      recordToolResult(toolExec, 'Not executed: observe mode only suggests actions.', true);
       return;
     }
 
@@ -200,6 +224,7 @@ export function useRudi() {
         : msg
     ));
     logAction(`BLOCKED: ${tool.name}`, 'BLOCKED');
+    recordToolResult(tool, `Blocked: ${reason}`, true);
     setTimeout(() => setGlobalToolStatus('idle'), 2500);
   };
 
@@ -242,9 +267,7 @@ export function useRudi() {
         speakText(`Operation successful, Sir. ${result}`);
       }
 
-      setTimeout(() => {
-        sendMessage(`[TOOL RESULT: ${tool.name}]\n${result}`, [], true);
-      }, 1000);
+      sendToolResult(tool, result, false);
 
     } catch (err: any) {
       setMessages(prev => prev.map(msg =>
@@ -256,13 +279,10 @@ export function useRudi() {
       setGlobalToolStatus('error');
       speakText(`Apologies, Sir. The operation failed: ${err.message}`);
 
-      setTimeout(() => {
-        const errorPrompt = autonomyLevel === 'autonomous' 
-          ? `[TOOL FAILURE: ${tool.name}]\nERROR: ${err.message}\n\n[SYSTEM: Sir, the operation failed. Please analyze what went wrong, explain the mistake to the Director, and record a "lesson" memory of this pattern before deciding on the next course of action.]`
-          : `[TOOL RESULT: ${tool.name}]\nERROR: ${err.message}`;
-          
-        sendMessage(errorPrompt, [], true);
-      }, 1000);
+      const errorResult = autonomyLevel === 'autonomous'
+        ? `${err.message}\n\n[SYSTEM: Sir, the operation failed. Please analyze what went wrong, explain the mistake to the Director, and record a "lesson" memory of this pattern before deciding on the next course of action.]`
+        : err.message;
+      sendToolResult(tool, errorResult, true);
     }
 
     setTimeout(() => {
@@ -308,7 +328,9 @@ export function useRudi() {
     attachments: { name: string; type: string; data: string }[] = [],
     isAutonomous = false
   ) => {
-    if (!text.trim() && attachments.length === 0) return;
+    // An autonomous call with no text continues the conversation after a tool result.
+    const isContinuation = isAutonomous && !text.trim() && attachments.length === 0;
+    if (!isContinuation && !text.trim() && attachments.length === 0) return;
     if (state === RudiState.Listening) stopListening();
 
     if (!isAutonomous) {
@@ -328,7 +350,9 @@ export function useRudi() {
     if (conversationHistory.current.length > UI_CONFIG.MAX_HISTORY_CONTEXT) {
       conversationHistory.current = conversationHistory.current.slice(-(UI_CONFIG.MAX_HISTORY_CONTEXT - 100));
     }
-    conversationHistory.current.push({ role: 'user', content: contextText });
+    // The backend appends `message` itself, so send the history from before this turn.
+    const priorHistory = conversationHistory.current.slice(-UI_CONFIG.CONTEXT_WINDOW);
+    if (!isContinuation) conversationHistory.current.push({ role: 'user', content: contextText });
 
     setMessages(prev => (prev.length > UI_CONFIG.MAX_MESSAGES_UI ? prev.slice(-UI_CONFIG.PRUNE_SIZE_UI) : prev));
 
@@ -362,7 +386,7 @@ export function useRudi() {
         body: JSON.stringify({
           message: text,
           attachments,
-          history: conversationHistory.current.slice(-UI_CONFIG.CONTEXT_WINDOW),
+          history: priorHistory,
           autonomyLevel,
           memories,
           projectContext,
@@ -379,16 +403,39 @@ export function useRudi() {
       const rudiMsgId   = (Date.now() + 1).toString();
       setMessages(prev => [...prev, { id: rudiMsgId, sender: 'rudi', text: '', timestamp: Date.now() }]);
 
-      let accumulatedBuffer = '';
-      let shownText         = '';
+      // NDJSON events (see utils/chatStream.ts). A plain-text body is an older backend.
+      const isEventStream = (response.headers.get('content-type') || '').includes('ndjson');
+      const parser        = createChatStreamParser();
+      let toolMode: ToolMode = isEventStream ? 'native' : 'text';
+      let rawText         = '';
+      let shownText       = '';
+      const nativeCalls: HistoryToolCall[] = [];
+
+      const handleEvent = (event: ChatStreamEvent) => {
+        switch (event.type) {
+          case 'start':     toolMode = event.toolMode; break;
+          case 'text':      rawText += event.delta; break;
+          case 'tool_call': nativeCalls.push({ id: event.id, name: event.name, params: event.params }); break;
+          case 'error':     rawText += (rawText ? '\n\n' : '') + event.message; break;
+        }
+      };
+      const consume = (chunk: string, final = false) => {
+        if (isEventStream) {
+          parser.push(chunk).forEach(handleEvent);
+          if (final) parser.flush().forEach(handleEvent);
+        } else {
+          rawText += chunk;
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        accumulatedBuffer += decoder.decode(value, { stream: true });
+        consume(decoder.decode(value, { stream: true }));
 
-        const { text } = splitToolCalls(accumulatedBuffer, false);
+        // Text-mode models put tool JSON in the text; hide it while it streams.
+        const text = toolMode === 'text' ? splitToolCalls(rawText, false).text : rawText.trim();
         if (text && text !== shownText) {
           shownText = text;
           setMessages(prev => prev.map(msg =>
@@ -396,24 +443,49 @@ export function useRudi() {
           ));
         }
       }
+      consume(decoder.decode(), true);
 
       setState(RudiState.Idle);
 
-      const { text: finalText, calls } = splitToolCalls(accumulatedBuffer, true);
-      let textContent = finalText;
-      for (const call of calls) {
-        if (call.message && !textContent.includes(call.message)) {
-          textContent = textContent ? `${textContent}
+      let textContent: string;
+      let toolCall: RequestedTool | undefined;
+      let historyCalls: HistoryToolCall[] = [];
 
-${call.message}` : call.message;
+      if (toolMode === 'native') {
+        textContent = rawText.trim();
+        historyCalls = nativeCalls;
+        // One tool per turn; the backend reports any others to the model as not executed.
+        const [first] = nativeCalls;
+        if (first) toolCall = { id: first.id, tool: first.name, params: first.params };
+      } else {
+        const { text: finalText, calls } = splitToolCalls(rawText, true);
+        textContent = finalText;
+        for (const call of calls) {
+          if (call.message && !textContent.includes(call.message)) {
+            textContent = textContent ? `${textContent}\n\n${call.message}` : call.message;
+          }
+        }
+        const legacy = calls.find(c => c.tool);
+        if (legacy?.tool) {
+          toolCall = {
+            id: `text_${Date.now().toString(36)}`,
+            tool: legacy.tool,
+            params: legacy.params || {},
+            requiresConfirmation: legacy.requiresConfirmation,
+          };
+          historyCalls = [{ id: toolCall.id, name: toolCall.tool, params: toolCall.params }];
         }
       }
+
       setMessages(prev => prev.map(msg =>
         msg.id === rudiMsgId ? { ...msg, text: formatRudiResponse(textContent) } : msg
       ));
-      conversationHistory.current.push({ role: 'assistant', content: textContent });
+      conversationHistory.current.push({
+        role: 'assistant',
+        content: textContent,
+        ...(historyCalls.length ? { toolCalls: historyCalls } : {}),
+      });
 
-      const toolCall = calls.find(c => c.tool);
       if (toolCall) executeToolCall(rudiMsgId, toolCall);
       speakText(stripForSpeech(textContent));
 

@@ -38,6 +38,52 @@ export async function resolveModel(ollamaClient, modelName) {
 }
 
 /**
+ * Model families known to support Ollama's native tool calling. Used only when
+ * the installed Ollama is too old to report capabilities from /api/show.
+ * Of the defaults above, llama3.2, qwen2.5-coder and qwen3 support tools;
+ * deepseek-r1:1.5b and moondream do not and use the text protocol.
+ */
+export const TOOL_CAPABLE_FAMILIES = [
+  'llama3.1', 'llama3.2', 'llama3.3', 'llama4',
+  'qwen2.5', 'qwen2.5-coder', 'qwen3', 'qwen3-coder',
+  'mistral', 'mistral-nemo', 'mistral-small', 'mixtral', 'devstral',
+  'command-r', 'command-r-plus', 'firefunction-v2', 'hermes3',
+  'granite3.1-dense', 'granite3.2', 'granite3.3', 'phi4-mini', 'smollm2', 'gpt-oss',
+];
+
+const toolSupportCache = new Map();
+
+/**
+ * Whether a local model accepts the `tools` parameter. Asks Ollama first
+ * (`capabilities` includes "tools"), then falls back to TOOL_CAPABLE_FAMILIES.
+ * Set RUDI_DISABLE_NATIVE_TOOLS=1 to force the text protocol for every model.
+ */
+export async function supportsTools(ollamaClient, modelName) {
+  if (process.env.RUDI_DISABLE_NATIVE_TOOLS === '1') return false;
+  if (toolSupportCache.has(modelName)) return toolSupportCache.get(modelName);
+
+  let supported;
+  try {
+    const info = await ollamaClient.show({ model: modelName });
+    if (Array.isArray(info?.capabilities)) supported = info.capabilities.includes('tools');
+  } catch {
+    // Older Ollama or model not pulled yet — fall through to the name check.
+  }
+  if (supported === undefined) {
+    const family = modelName.split(':')[0].split('/').pop();
+    supported = TOOL_CAPABLE_FAMILIES.includes(family);
+  }
+
+  toolSupportCache.set(modelName, supported);
+  return supported;
+}
+
+/** Remember that a model has no tool support, e.g. after Ollama rejected `tools` for it. */
+export function markNoToolSupport(modelName) {
+  toolSupportCache.set(modelName, false);
+}
+
+/**
  * Lists all installed models in Ollama.
  */
 export async function listInstalledModels(ollamaClient) {
