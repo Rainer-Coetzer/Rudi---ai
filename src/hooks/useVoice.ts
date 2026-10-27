@@ -20,6 +20,36 @@ function readVoicePref(): boolean {
   }
 }
 
+const GERMAN_MALE_VOICE_NAMES = ['stefan', 'conrad', 'killian', 'florian'];
+
+// getVoices() is often empty until the browser fires `voiceschanged`.
+function loadSystemVoices(): Promise<SpeechSynthesisVoice[]> {
+  const synth = window.speechSynthesis;
+  const voices = synth.getVoices();
+  if (voices.length > 0) return Promise.resolve(voices);
+
+  return new Promise(resolve => {
+    const done = () => {
+      synth.removeEventListener('voiceschanged', done);
+      clearTimeout(timer);
+      resolve(synth.getVoices());
+    };
+    const timer = setTimeout(done, 1000);
+    synth.addEventListener('voiceschanged', done);
+  });
+}
+
+// Prefer a German male voice (to match the de-DE neural TTS), then any German,
+// then British English, then any English, then whatever the system has.
+function pickSystemVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
+  const isGerman = (v: SpeechSynthesisVoice) => v.lang.toLowerCase().startsWith('de');
+  return voices.find(v => isGerman(v) && GERMAN_MALE_VOICE_NAMES.some(n => v.name.toLowerCase().includes(n)))
+      || voices.find(isGerman)
+      || voices.find(v => v.lang.startsWith('en-GB'))
+      || voices.find(v => v.lang.startsWith('en'))
+      || voices[0];
+}
+
 export function useVoice() {
   // Voice mode (spoken replies + always-on "Hey Rudi" listening) starts off, so
   // the microphone is never requested until the user switches it on.
@@ -129,18 +159,16 @@ export function useVoice() {
     });
   }, [volume]);
 
-  const speakTextSystem = useCallback((text: string) => {
+  const speakTextSystem = useCallback(async (text: string) => {
+    const fallbackVoice = pickSystemVoice(await loadSystemVoices());
+
     return new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
-      
-      // Try to find a British English male voice (JARVIS style)
-      const voices = window.speechSynthesis.getVoices();
-      const fallbackVoice = voices.find(v => v.lang.startsWith('en-GB') && v.name.toLowerCase().includes('male')) 
-                       || voices.find(v => v.lang.startsWith('en-GB'))
-                       || voices.find(v => v.lang.startsWith('en'))
-                       || voices[0];
-      
+
+      // A German voice reading English text gives Rudi his accent; keep the
+      // utterance language English so the words are still read as English.
       if (fallbackVoice) utterance.voice = fallbackVoice;
+      utterance.lang = 'en-GB';
       utterance.rate = 1.0;
       utterance.pitch = 0.9; // Slightly deeper for Rudi
       utterance.volume = volume;
