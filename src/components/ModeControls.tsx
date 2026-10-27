@@ -8,6 +8,8 @@ interface ModeControlsProps {
   provider: Provider;
   setProvider: (p: Provider) => void;
   claudeAvailable: boolean;
+  /** Why Claude is unavailable, if the backend reports one; overrides the default hint. */
+  claudeUnavailableReason?: string;
   autonomyLevel: AutonomyLevel;
   setAutonomyLevel: (level: AutonomyLevel) => void;
   voiceEnabled: boolean;
@@ -20,11 +22,13 @@ interface ModeControlsProps {
 
 const autonomyLevels: AutonomyLevel[] = ['observe', 'assist', 'autonomous'];
 
+const DEFAULT_CLAUDE_HINT = 'Sign in to Claude Code to enable: run `claude`, then /login';
+
 const segment = 'flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-semibold tracking-wide transition-colors';
 const idleSegment = 'text-white/70 hover:text-white hover:bg-white/10';
 
 export const ModeControls: React.FC<ModeControlsProps> = ({
-  provider, setProvider, claudeAvailable,
+  provider, setProvider, claudeAvailable, claudeUnavailableReason,
   autonomyLevel, setAutonomyLevel,
   voiceEnabled, setVoiceEnabled, volume, setVolume,
   onUndo, canUndo,
@@ -62,28 +66,37 @@ export const ModeControls: React.FC<ModeControlsProps> = ({
             const isSelected = provider === p;
             const disabled = p === 'claude' && !claudeAvailable;
             return (
-              <button
-                key={p}
-                type="button"
-                role="radio"
-                aria-checked={isSelected}
-                aria-disabled={disabled}
-                onClick={() => !disabled && setProvider(p)}
-                title={
-                  disabled ? 'Claude is off: set ANTHROPIC_API_KEY in backend/.env to enable it'
-                  : p === 'ollama' ? 'Use the local Ollama model' : 'Use Claude (cloud)'
-                }
-                className={`${segment} ${
-                  disabled
-                    ? 'text-white/50 cursor-not-allowed border border-transparent'
-                    : isSelected
-                      ? 'text-purple-200 bg-purple-500/20 border border-purple-500/40'
-                      : `${idleSegment} border border-transparent`
-                }`}
-              >
-                {p === 'ollama' ? <Server size={13} aria-hidden /> : <Cloud size={13} aria-hidden />}
-                {p === 'ollama' ? 'Ollama' : 'Claude'}
-              </button>
+              <span key={p} className="relative group">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  aria-disabled={disabled}
+                  aria-describedby={disabled ? 'claude-unavailable-hint' : undefined}
+                  onClick={() => !disabled && setProvider(p)}
+                  title={disabled ? undefined : p === 'ollama' ? 'Use the local Ollama model' : 'Use Claude via your Claude Code sign-in'}
+                  className={`${segment} ${
+                    disabled
+                      ? 'text-white/50 cursor-not-allowed border border-transparent'
+                      : isSelected
+                        ? 'text-purple-200 bg-purple-500/20 border border-purple-500/40'
+                        : `${idleSegment} border border-transparent`
+                  }`}
+                >
+                  {p === 'ollama' ? <Server size={13} aria-hidden /> : <Cloud size={13} aria-hidden />}
+                  {p === 'ollama' ? 'Ollama' : 'Claude'}
+                </button>
+                {disabled && (
+                  // Shown on hover and on keyboard focus (a title tooltip only appears on hover).
+                  <span
+                    id="claude-unavailable-hint"
+                    role="tooltip"
+                    className="hidden group-hover:block group-focus-within:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 px-3 py-2 rounded-lg bg-black/95 border border-white/20 text-xs text-white/90 leading-snug text-center shadow-xl z-20"
+                  >
+                    {claudeUnavailableReason || DEFAULT_CLAUDE_HINT}
+                  </span>
+                )}
+              </span>
             );
           })}
         </div>
