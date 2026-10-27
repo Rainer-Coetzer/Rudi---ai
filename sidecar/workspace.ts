@@ -36,8 +36,8 @@ function writeSettings(settings: Settings): void {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
-  } catch (err: any) {
-    console.error('[WORKSPACE] Failed to persist settings:', err.message);
+  } catch (err) {
+    console.error('[WORKSPACE] Failed to persist settings:', (err as Error).message);
   }
 }
 

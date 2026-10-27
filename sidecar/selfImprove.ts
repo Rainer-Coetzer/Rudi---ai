@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import child_process from 'child_process';
-import { clearLog, readLog, writeLog } from './logger';
+import { readLog, writeLog } from './logger';
 
 export function selfInspect(projectRoot: string) {
   try {
@@ -21,8 +21,8 @@ export function selfInspect(projectRoot: string) {
       success: true,
       result: `Inspected project structure. Found ${fileList.length} files. \n\n${fileList.slice(0, 100).join('\n')}\n...`
     };
-  } catch (err: any) {
-    return { success: false, result: err.message };
+  } catch (err) {
+    return { success: false, result: (err as Error).message };
   }
 }
 
@@ -61,13 +61,13 @@ export async function selfImprove(projectRoot: string, fileRelPath: string, newC
     writeLog('self-improvements', 'SelfImprove', changelogEntry);
 
     // Commit change
-    child_process.exec(`git add "${filePath}" && git commit -m "Rudi Self-Improvement: ${fileRelPath}"`, { cwd: projectRoot }, (err, stdout) => {
+    child_process.exec(`git add "${filePath}" && git commit -m "Rudi Self-Improvement: ${fileRelPath}"`, { cwd: projectRoot }, (err) => {
       if (err) console.error('Git auto-commit failed for self improvement:', err);
     });
 
     return { success: true, result: `Successfully improved ${fileRelPath}.` };
-  } catch (err: any) {
-    return { success: false, result: `Self-improvement failed: ${err.message}` };
+  } catch (err) {
+    return { success: false, result: `Self-improvement failed: ${(err as Error).message}` };
   }
 }
 

@@ -106,8 +106,8 @@ async function dispatch(line: string) {
   try {
     const result = await handler(params ?? {});
     send({ id, result: result ?? null });
-  } catch (err: any) {
-    send({ id, error: err?.message ?? String(err) });
+  } catch (err) {
+    send({ id, error: (err as Error)?.message ?? String(err) });
   }
 }
 
