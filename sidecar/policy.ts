@@ -30,7 +30,7 @@ export function setAutonomyLevel(level: unknown): AutonomyLevel {
   return autonomyLevel;
 }
 
-function needsApproval(name: string): boolean {
+export function needsApproval(name: string): boolean {
   if (requiresHardConfirmation(name)) return true;
   if (READ_ONLY.has(name)) return false;
   return !canAutoExecute(name, autonomyLevel);

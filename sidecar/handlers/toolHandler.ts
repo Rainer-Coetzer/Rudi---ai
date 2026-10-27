@@ -17,14 +17,16 @@ import { openExternal } from '../platform';
  * path, or null if it escapes the workspace. Always operate on the returned path —
  * a raw relative path would resolve against the sidecar's own working directory.
  */
-function resolveInWorkspace(target: string | undefined, { allowRoot = false } = {}): string | null {
+export function resolveInWorkspace(target: string | undefined, { allowRoot = false } = {}): string | null {
   if (!target || target.includes('"')) return null;
   try {
     const root = getWorkspaceRoot();
     const resolved = path.resolve(root, target);
     const relative = path.relative(root, resolved);
     if (relative === '') return allowRoot ? resolved : null;
-    return !relative.startsWith('..') && !path.isAbsolute(relative) ? resolved : null;
+    // Compare the first segment, so names like "..config" aren't mistaken for a parent dir.
+    const escapes = relative === '..' || relative.startsWith(`..${path.sep}`);
+    return !escapes && !path.isAbsolute(relative) ? resolved : null;
   } catch {
     return null;
   }
@@ -55,7 +57,7 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
         const shellCmd = `Start-Process '${exe.replace(/'/g, "''")}' -ErrorAction Stop`;
         
         return new Promise((resolve) => {
-          child_process.exec(`powershell -NoProfile -Command "${shellCmd}"`, (error, stdout, stderr) => {
+          child_process.exec(`powershell -NoProfile -Command "${shellCmd}"`, (error, _stdout, stderr) => {
             if (error || stderr) resolve({ success: false, result: `Failed to launch ${appName}.` });
             else resolve({ success: true, result: `Launched ${appName}.` });
           });
@@ -294,8 +296,8 @@ export async function handleToolExecution(name: string, params: any): Promise<{ 
       default:
         return { success: false, result: `Tool "${name}" not recognized.` };
     }
-  } catch (err: any) {
-    writeLog('errors', 'HANDLER', `Tool: ${name} Failed: ${err.message}`);
-    return { success: false, result: `Execution error: ${err.message}` };
+  } catch (err) {
+    writeLog('errors', 'HANDLER', `Tool: ${name} Failed: ${(err as Error).message}`);
+    return { success: false, result: `Execution error: ${(err as Error).message}` };
   }
 }
