@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, X, RefreshCw, Trash2, ChevronRight, FileText } from 'lucide-react';
+import { safeParse } from '../utils/json';
 
 interface MeetingPanelProps {
   isOpen: boolean;
@@ -13,12 +14,12 @@ export const MeetingPanel: React.FC<MeetingPanelProps> = ({ isOpen, onClose }) =
   const [selectedNote, setSelectedNote] = useState<any>(null);
 
   const fetchNotes = async () => {
-    if (!window.electronAPI) return;
+    if (!window.desktopAPI) return;
     setLoading(true);
     try {
-      const res = await window.electronAPI.executeTool('list_meeting_notes', {});
+      const res = await window.desktopAPI.executeTool('list_meeting_notes', {});
       if (res.success) {
-        setNotes(JSON.parse(res.result));
+        setNotes(safeParse<any[]>(res.result) ?? []);
       }
     } catch (err) {
       console.error(err);
@@ -28,9 +29,9 @@ export const MeetingPanel: React.FC<MeetingPanelProps> = ({ isOpen, onClose }) =
 
   const deleteNote = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.electronAPI) return;
+    if (!window.desktopAPI) return;
     try {
-      const res = await window.electronAPI.executeTool('delete_meeting_note', { id });
+      const res = await window.desktopAPI.executeTool('delete_meeting_note', { id });
       if (res.success) {
         if (selectedNote?.id === id) setSelectedNote(null);
         fetchNotes();

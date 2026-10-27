@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Terminal, Globe, Folder, Play, Search, GitBranch,
@@ -22,6 +22,24 @@ interface ToolItem {
 }
 
 export const SidebarTools: React.FC<SidebarToolsProps> = ({ onToolSelect }) => {
+  const [workspace, setWorkspace] = useState<string>('');
+
+  useEffect(() => {
+    if (window.desktopAPI?.getWorkspace) {
+      window.desktopAPI.getWorkspace().then(setWorkspace).catch(() => {});
+    }
+  }, []);
+
+  const handlePickWorkspace = async () => {
+    if (!window.desktopAPI?.pickWorkspace) return;
+    const chosen = await window.desktopAPI.pickWorkspace();
+    if (chosen) setWorkspace(chosen);
+  };
+
+  const workspaceBasename = workspace
+    ? workspace.split(/[\\/]/).filter(Boolean).pop() ?? workspace
+    : 'No workspace';
+
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({
     System: true,
     Files: false,
@@ -119,6 +137,24 @@ export const SidebarTools: React.FC<SidebarToolsProps> = ({ onToolSelect }) => {
       {/* Header */}
       <div className="px-4 py-3 border-b border-white/20">
         <p className="text-[9px] uppercase tracking-[0.2em] text-white/80 font-bold">Rudi Command Center</p>
+      </div>
+
+      {/* Workspace bar */}
+      <div className="px-3 py-2 border-b border-white/10 flex items-center gap-2 bg-white/5">
+        <Folder size={12} className="text-cyan-400 shrink-0" />
+        <span
+          className="text-[10px] text-white/70 truncate flex-1 font-mono"
+          title={workspace}
+        >
+          {workspaceBasename}
+        </span>
+        <button
+          onClick={handlePickWorkspace}
+          className="text-[9px] uppercase tracking-wider text-cyan-400/80 hover:text-cyan-300 transition-colors shrink-0 px-1.5 py-0.5 rounded hover:bg-white/10"
+          title="Change active workspace"
+        >
+          Change
+        </button>
       </div>
 
       <nav className="flex flex-col gap-1 px-2 pb-10 pt-2">

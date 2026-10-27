@@ -1,24 +1,26 @@
 /**
- * Rudi Model Configuration v2
- * 
- * Models are selected automatically based on available hardware.
- * Override with environment variables if needed:
- *   RUDI_MODEL         — force a specific primary model
- *   RUDI_FALLBACK_MODEL — force a specific fallback model  
- *   RUDI_VISION_MODEL  — vision model for image analysis
- * 
- * Available tiers (auto-selected by resourceManager):
- *   gemma4:latest  — Full 27B  — requires 16GB+ VRAM / 16GB+ RAM
- *   gemma4:e4b     — E4B 4bit  — requires 8GB+  VRAM / 10GB+ RAM
- *   gemma4:e2b     — E2B 2bit  — requires 4GB+  VRAM / 6GB+  RAM
+ * Rudi Model Configuration v3
+ *
+ * Role-based model lineup — each role targets a smaller, faster local model.
+ * Override any role with environment variables:
+ *   RUDI_MODEL                   — general / voice chat  (default: llama3.2:1b)
+ *   RUDI_CODING_MODEL            — code generation        (default: qwen2.5-coder:1.5b)
+ *   RUDI_REASONING_MODEL         — quick analysis         (default: qwen3:0.6b)
+ *   RUDI_REASONING_HEAVY_MODEL   — deep reasoning         (default: deepseek-r1:1.5b)
+ *   RUDI_VISION_MODEL            — image analysis         (default: moondream:latest)
+ *
+ * Models are stored in D:\Rudi\models (set via OLLAMA_MODELS in electron/main.ts).
  */
 
 export const MODEL_CONFIG = {
-  // These are defaults; the server overrides them on startup via autoSelectModel()
-  // e2b is used for simple/conversational tasks. e4b escalates automatically for complex work.
-  primary:  process.env.RUDI_MODEL          || 'gemma4:e2b',
-  fallback: process.env.RUDI_FALLBACK_MODEL || 'gemma4:e2b',
-  vision:   process.env.RUDI_VISION_MODEL   || 'moondream:latest',
+  general:        process.env.RUDI_MODEL                 || 'llama3.2:1b',
+  coding:         process.env.RUDI_CODING_MODEL          || 'qwen2.5-coder:1.5b',
+  reasoning:      process.env.RUDI_REASONING_MODEL       || 'qwen3:0.6b',
+  reasoningHeavy: process.env.RUDI_REASONING_HEAVY_MODEL || 'deepseek-r1:1.5b',
+  vision:         process.env.RUDI_VISION_MODEL          || 'moondream:latest',
+  // Back-compat aliases used by legacy code paths
+  primary:  process.env.RUDI_MODEL || 'llama3.2:1b',
+  fallback: process.env.RUDI_MODEL || 'llama3.2:1b',
 };
 
 /**

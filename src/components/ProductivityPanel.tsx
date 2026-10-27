@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckSquare, Calendar, X, RefreshCw, FileText } from 'lucide-react';
+import { safeParse } from '../utils/json';
 
 interface ProductivityPanelProps {
   isOpen: boolean;
@@ -13,15 +14,15 @@ export const ProductivityPanel: React.FC<ProductivityPanelProps> = ({ isOpen, on
   const [loading, setLoading] = useState(false);
 
   const fetchData = async () => {
-    if (!window.electronAPI) return;
+    if (!window.desktopAPI) return;
     setLoading(true);
     try {
-      const taskRes = await window.electronAPI.executeTool('list_tasks', {});
-      if (taskRes.success) setTasks(JSON.parse(taskRes.result));
-      
-      const evtRes = await window.electronAPI.executeTool('get_upcoming_events', {});
+      const taskRes = await window.desktopAPI.executeTool('list_tasks', {});
+      if (taskRes.success) setTasks(safeParse<any[]>(taskRes.result) ?? []);
+
+      const evtRes = await window.desktopAPI.executeTool('get_upcoming_events', {});
       if (evtRes.success && evtRes.result !== 'No upcoming events.') {
-        setEvents(JSON.parse(evtRes.result));
+        setEvents(safeParse<any[]>(evtRes.result) ?? []);
       } else {
         setEvents([]);
       }

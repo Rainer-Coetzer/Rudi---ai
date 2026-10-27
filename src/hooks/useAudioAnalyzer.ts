@@ -7,6 +7,8 @@ export function useAudioAnalyzer(isActive: boolean) {
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastAudioProcessTime = useRef<number>(0);
+  const freqBufferRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const lastLevelRef = useRef<number>(0);
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
@@ -20,11 +22,20 @@ export function useAudioAnalyzer(isActive: boolean) {
     const now = performance.now();
     // Cache level updates to ~30fps for UI performance
     if (now - lastAudioProcessTime.current > 33) {
-      const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+      const bins = analyserRef.current.frequencyBinCount;
+      if (!freqBufferRef.current || freqBufferRef.current.length !== bins) {
+        freqBufferRef.current = new Uint8Array(bins);
+      }
+      const dataArray = freqBufferRef.current;
       analyserRef.current.getByteFrequencyData(dataArray);
       let sum = 0;
       for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-      setMicrophoneLevel(Math.min((sum / dataArray.length) / 128, 1.0));
+      const level = Math.min((sum / dataArray.length) / 128, 1.0);
+      // Skip re-renders for imperceptible changes
+      if (Math.abs(level - lastLevelRef.current) > 0.01 || (level === 0) !== (lastLevelRef.current === 0)) {
+        lastLevelRef.current = level;
+        setMicrophoneLevel(level);
+      }
       lastAudioProcessTime.current = now;
     }
     animationFrameRef.current = requestAnimationFrame(analyzeAudio);
@@ -63,6 +74,7 @@ export function useAudioAnalyzer(isActive: boolean) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    lastLevelRef.current = 0;
     setMicrophoneLevel(0);
   }, []);
 

@@ -1,5 +1,8 @@
 import os from 'os';
-import { execSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Rudi Resource Manager v5
@@ -16,14 +19,14 @@ import { execSync } from 'child_process';
 // ─── Model Tier Configuration ─────────────────────────────────────────────────
 // Listed best → worst. Rudi walks this list to find the highest tier installable.
 export const MODEL_TIERS = [
-  { minVRAM_GB: 16, minRAM_GB: 16, model: 'gemma4:latest', layers: 46, label: 'Full 27B' },
-  { minVRAM_GB:  8, minRAM_GB: 10, model: 'gemma4:e4b',    layers: 46, label: 'E4B'      },
-  { minVRAM_GB:  4, minRAM_GB:  6, model: 'gemma4:e2b',    layers: 26, label: 'E2B'      },
-  { minVRAM_GB:  0, minRAM_GB:  4, model: 'gemma4:e2b',    layers: 12, label: 'Minimal'  },
+  { minVRAM_GB: 2, minRAM_GB: 4, model: 'deepseek-r1:1.5b',   layers: 28, label: 'Reasoning Heavy' },
+  { minVRAM_GB: 1, minRAM_GB: 3, model: 'qwen2.5-coder:1.5b', layers: 28, label: 'Coding'          },
+  { minVRAM_GB: 1, minRAM_GB: 2, model: 'llama3.2:1b',        layers: 16, label: 'General'         },
+  { minVRAM_GB: 0, minRAM_GB: 1, model: 'qwen3:0.6b',         layers: 28, label: 'Reasoning Fast'  },
 ];
 
-const LAYER_MEM_MB = 210;  // Approx MB per gemma4 layer (calibrated for e4b)
-const TOTAL_LAYERS = 46;
+const LAYER_MEM_MB = 80;   // Approx MB per layer for 1-2B models
+const TOTAL_LAYERS = 28;
 
 // ─── VRAM Detection ────────────────────────────────────────────────────────────
 
@@ -31,13 +34,13 @@ const TOTAL_LAYERS = 46;
  * Query VRAM from nvidia-smi (most accurate source on Windows with NVIDIA GPU).
  * Returns total VRAM in GB, or 0 if unavailable.
  */
-const detectVRAM_nvidia_smi = () => {
+const detectVRAM_nvidia_smi = async () => {
   try {
-    const output = execSync('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits', {
-      timeout: 3000,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const { stdout: output } = await execFileAsync(
+      'nvidia-smi',
+      ['--query-gpu=memory.total', '--format=csv,noheader,nounits'],
+      { timeout: 3000, encoding: 'utf-8', windowsHide: true }
+    );
     const lines = output.trim().split('\n');
     const values = lines.map(l => parseInt(l.trim(), 10)).filter(v => !isNaN(v));
     if (values.length > 0) {
@@ -77,13 +80,13 @@ const detectVRAM_ollama = async () => {
  * Generic Windows VRAM detection via wmic.
  * Works for AMD, Intel, and NVIDIA as a secondary fallback.
  */
-const detectVRAM_wmic = () => {
+const detectVRAM_wmic = async () => {
   try {
-    const output = execSync('wmic path win32_VideoController get AdapterRAM', {
-      timeout: 3000,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const { stdout: output } = await execFileAsync(
+      'wmic',
+      ['path', 'win32_VideoController', 'get', 'AdapterRAM'],
+      { timeout: 3000, encoding: 'utf-8', windowsHide: true }
+    );
     const values = output.trim().split('\n')
       .map(l => parseInt(l.trim(), 10))
       .filter(v => !isNaN(v) && v > 0);
@@ -104,13 +107,23 @@ const detectVRAM_wmic = () => {
  * Returns total available VRAM in GB using all available detection methods.
  * Priority: nvidia-smi > Ollama runtime > RAM-based heuristic.
  */
+const VRAM_CACHE_TTL_MS = 60_000;
+let vramCache = null; // { value, at }
+
 export const estimateVRAM_GB = async () => {
+  if (vramCache && Date.now() - vramCache.at < VRAM_CACHE_TTL_MS) return vramCache.value;
+  const value = await estimateVRAM_uncached();
+  vramCache = { value, at: Date.now() };
+  return value;
+};
+
+const estimateVRAM_uncached = async () => {
   // 1. Try nvidia-smi (most reliable for NVIDIA)
-  const nvidiaVRAM = detectVRAM_nvidia_smi();
+  const nvidiaVRAM = await detectVRAM_nvidia_smi();
   if (nvidiaVRAM > 0) return nvidiaVRAM;
 
   // 2. Try generic wmic (AMD, Intel, NVIDIA fallback)
-  const genericVRAM = detectVRAM_wmic();
+  const genericVRAM = await detectVRAM_wmic();
   if (genericVRAM > 0) return genericVRAM;
 
   // 3. Try Ollama runtime
@@ -156,7 +169,7 @@ export const detectOptimalModel = async (ollamaClient, availableModelNames = [])
   }
 
   // Final fallback: first installed model
-  const fallback = availableModelNames[0] || 'gemma4:e2b';
+  const fallback = availableModelNames[0] || 'llama3.2:1b';
   console.warn(`[RESOURCE] ✗ No ideal tier found. Falling back to: ${fallback}`);
   return { model: fallback, tier: MODEL_TIERS[MODEL_TIERS.length - 1] };
 };

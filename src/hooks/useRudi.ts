@@ -7,6 +7,7 @@ import { useSpeechToText } from './useSpeechToText';
 import { useAudioAnalyzer } from './useAudioAnalyzer';
 import { useHealthMonitor } from './useHealthMonitor';
 import { ENDPOINTS, UI_CONFIG } from '../utils/config';
+import { safeParse } from '../utils/json';
 
 export const RudiState = {
   Idle:      'idle',
@@ -46,6 +47,8 @@ export interface PendingTool {
   expiresAt: number;
 }
 
+export type Provider = 'ollama' | 'claude';
+
 export function useRudi() {
   const [state, setState]                           = useState<RudiState>(RudiState.Idle);
   const [messages, setMessages]                     = useState<ChatMessage[]>([]);
@@ -54,6 +57,9 @@ export function useRudi() {
   const [recentActions, setRecentActions]           = useState<ActionSummary[]>([]);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingTool | null>(null);
   const [globalToolStatus, setGlobalToolStatus]     = useState<'idle' | 'running' | 'success' | 'error' | 'blocked'>('idle');
+  const [provider, setProvider]                     = useState<Provider>(
+    () => (localStorage.getItem('rudi_provider') as Provider) ?? 'ollama'
+  );
 
   const { systemHealth } = useHealthMonitor();
   const { microphoneLevel, startAnalyzer, stopAnalyzer } = useAudioAnalyzer(state === RudiState.Listening);
@@ -106,9 +112,9 @@ export function useRudi() {
     };
     setRecentActions(prev => [entry, ...prev].slice(0, 100));
 
-    if (window.electronAPI?.appendLog) {
+    if (window.desktopAPI?.appendLog) {
       const category = statusTag === 'ERROR' ? 'errors' : 'activity';
-      window.electronAPI.appendLog(category, 'TOOL', `[${statusTag}] ${desc}`);
+      window.desktopAPI.appendLog(category, 'TOOL', `[${statusTag}] ${desc}`);
     }
   };
 
@@ -193,8 +199,8 @@ export function useRudi() {
 
     try {
       let result = '';
-      if (window.electronAPI) {
-        const res = await window.electronAPI.executeTool(tool.name, tool.params);
+      if (window.desktopAPI) {
+        const res = await window.desktopAPI.executeTool(tool.name, tool.params);
         if (!res.success) throw new Error(res.result);
         result = res.result;
       } else {
@@ -257,9 +263,9 @@ export function useRudi() {
   };
 
   const undoLastAction = async () => {
-    if (!window.electronAPI) return;
+    if (!window.desktopAPI) return;
     try {
-      const res = await window.electronAPI.executeTool('undo_action', {});
+      const res = await window.desktopAPI.executeTool('undo_action', {});
       if (res.success) {
         logAction(`UNDO: ${res.result}`, 'SAFE');
         speakText(`Action undone. ${res.result}`);
@@ -311,15 +317,17 @@ export function useRudi() {
 
     let memories: string[] = [];
     let projectContext = '';
-    if (window.electronAPI) {
+    if (window.desktopAPI) {
       try {
-        const memRes = await window.electronAPI.executeTool('list_memories', {});
+        const memRes = await window.desktopAPI.executeTool('list_memories', {});
         if (memRes.success) {
-           const rawMems = JSON.parse(memRes.result);
-           memories = rawMems.slice(-5).map((m: any) => `[RECALL: ${m.type.toUpperCase()}] ${m.content}`);
+          const rawMems = safeParse<any[]>(memRes.result);
+          if (Array.isArray(rawMems)) {
+            memories = rawMems.slice(-5).map((m: any) => `[RECALL: ${m.type.toUpperCase()}] ${m.content}`);
+          }
         }
         
-        projectContext = await window.electronAPI.getProjectContext?.() || '';
+        projectContext = await window.desktopAPI.getProjectContext?.() || '';
       } catch (err) {
         console.warn('Metadata recall failed:', err);
       }
@@ -336,7 +344,8 @@ export function useRudi() {
           history: conversationHistory.current.slice(-UI_CONFIG.CONTEXT_WINDOW),
           autonomyLevel,
           memories,
-          projectContext
+          projectContext,
+          provider,
         })
       });
 
@@ -406,7 +415,8 @@ export function useRudi() {
         try {
           const firstBrace = jsonContent.indexOf('{');
           const lastBrace  = jsonContent.lastIndexOf('}') + 1;
-          const parsed     = JSON.parse(jsonContent.substring(firstBrace, lastBrace));
+          const parsed     = safeParse<any>(jsonContent.substring(firstBrace, lastBrace));
+          if (!parsed) throw new Error('Unparseable tool JSON');
 
           if (parsed.message && !textContent.includes(parsed.message)) {
             textContent += '\n\n' + parsed.message;
@@ -487,5 +497,10 @@ export function useRudi() {
     voiceEnabled, setVoiceEnabled,
     isSpeaking, audioLevel,
     volume, setVolume,
+    provider,
+    setProvider: (p: Provider) => {
+      localStorage.setItem('rudi_provider', p);
+      setProvider(p);
+    },
   };
 }

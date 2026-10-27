@@ -3,6 +3,9 @@ import path from 'path';
 import os from 'os';
 
 let kbCache = null;
+let idCounter = 0;
+// Lowercased content per entry, kept off the persisted objects.
+const lowerCache = new WeakMap();
 let kbQueue = Promise.resolve();
 
 const KB_PATH = path.join(os.homedir(), 'AppData', 'Roaming', 'rudi-app', 'knowledge_base.json');
@@ -25,18 +28,28 @@ async function saveStore(entries) {
   
   await fs.mkdir(dir, { recursive: true });
   // Atomic write pattern: write to temp, then rename
-  await fs.writeFile(tempPath, JSON.stringify(entries, null, 2), 'utf-8');
+  await fs.writeFile(tempPath, JSON.stringify(entries), 'utf-8');
   await fs.rename(tempPath, KB_PATH);
   kbCache = entries;
 }
 
+function makeEntry(entry) {
+  return { id: `kb_${Date.now()}_${idCounter++}`, ...entry, timestamp: new Date().toISOString() };
+}
+
 export async function addKnowledge(entry) {
-  return (kbQueue = kbQueue.then(async () => {
+  const [added] = await addKnowledgeBatch([entry]);
+  return added;
+}
+
+/** Adds many entries with a single disk write. */
+export async function addKnowledgeBatch(entries) {
+  return (kbQueue = kbQueue.catch(() => {}).then(async () => {
     const store = await loadStore();
-    const newEntry = { id: `kb_${Date.now()}`, ...entry, timestamp: new Date().toISOString() };
-    store.push(newEntry);
+    const added = entries.map(makeEntry);
+    store.push(...added);
     await saveStore(store);
-    return newEntry;
+    return added;
   }));
 }
 
@@ -62,7 +75,11 @@ export async function getRelevantContext(query, topK = 3) {
   const terms = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
 
   const scored = store.map(entry => {
-    const text = (entry.content || '').toLowerCase();
+    let text = lowerCache.get(entry);
+    if (text === undefined) {
+      text = (entry.content || '').toLowerCase();
+      lowerCache.set(entry, text);
+    }
     const score = terms.reduce((acc, term) => acc + (text.includes(term) ? 1 : 0), 0);
     return { entry, score };
   });

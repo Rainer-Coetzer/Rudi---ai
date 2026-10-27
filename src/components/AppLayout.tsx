@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Activity, Mic, MicOff, Volume2, VolumeX, Paperclip, X, FileText, MessageSquare, Briefcase, RefreshCw, Square, Minus, Maximize2, Trash2, Copy } from 'lucide-react';
-import { useRudi, RudiState } from '../hooks/useRudi';
+import { Send, Activity, Mic, MicOff, Volume2, VolumeX, Paperclip, X, FileText, MessageSquare, Briefcase, RefreshCw, Square, Minus, Maximize2, Trash2, Copy, Cloud, Server } from 'lucide-react';
+import { useRudi, RudiState, type Provider } from '../hooks/useRudi';
 import { AutonomyColors, AutonomyLabels } from '../utils/autonomy';
 import type { AutonomyLevel } from '../utils/autonomy';
 import { RudiSphere } from './RudiSphere';
@@ -23,10 +23,11 @@ export const AppLayout: React.FC = () => {
     pendingConfirmation, confirmPendingTool,
     cancelCurrentTask, clearChat,
     voiceEnabled, setVoiceEnabled, isSpeaking, audioLevel, volume, setVolume,
-    systemHealth
+    systemHealth,
+    provider, setProvider,
   } = useRudi();
 
-  const isBrowser      = !window.electronAPI;
+  const isBrowser      = !window.desktopAPI;
   const sphereAmplitude = isSpeaking ? audioLevel : microphoneLevel;
 
   const [inputText, setInputText]               = useState('');
@@ -40,9 +41,10 @@ export const AppLayout: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (window.electronAPI?.windowIsMaximized) {
+    const api = window.desktopAPI;
+    if (api) {
       const syncMaximizedState = async () => {
-        const val = await window.electronAPI.windowIsMaximized();
+        const val = await api.windowIsMaximized();
         setIsMaximized(val);
       };
       syncMaximizedState();
@@ -185,7 +187,7 @@ export const AppLayout: React.FC = () => {
 
           <div className="flex items-center gap-1 z-[200]" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <button
-              onClick={() => window.electronAPI?.windowMinimize()}
+              onClick={() => window.desktopAPI?.windowMinimize()}
               className="w-10 h-8 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white/80 transition-colors"
               title="Minimize"
             >
@@ -193,7 +195,7 @@ export const AppLayout: React.FC = () => {
             </button>
             <button
               onClick={() => {
-                window.electronAPI?.windowMaximize();
+                window.desktopAPI?.windowMaximize();
                 setIsMaximized(!isMaximized);
               }}
               className="w-10 h-8 flex items-center justify-center rounded hover:bg-white/10 text-white/40 hover:text-white/80 transition-colors"
@@ -202,7 +204,7 @@ export const AppLayout: React.FC = () => {
               {isMaximized ? <Copy size={13} className="rotate-180" /> : <Maximize2 size={13} />}
             </button>
             <button
-              onClick={() => window.electronAPI?.windowClose()}
+              onClick={() => window.desktopAPI?.windowClose()}
               className="w-10 h-8 flex items-center justify-center rounded hover:bg-red-500/80 text-white/40 hover:text-white transition-colors"
               title="Close"
             >
@@ -363,6 +365,32 @@ export const AppLayout: React.FC = () => {
 
           <div className="w-full max-w-3xl mx-auto pointer-events-auto px-6 pb-8 flex flex-col gap-4">
             <div className="flex items-center justify-center gap-2 mb-2">
+              {/* Provider toggle */}
+              <div className="flex items-center glass-panel rounded-full p-1 gap-0.5 shadow-lg">
+                {(['ollama', 'claude'] as Provider[]).map(p => {
+                  const isSelected = provider === p;
+                  const disabled = p === 'claude' && !systemHealth.claude;
+                  return (
+                    <motion.button
+                      key={p}
+                      whileTap={disabled ? {} : { scale: 0.95 }}
+                      onClick={() => !disabled && setProvider(p)}
+                      title={disabled ? 'Set ANTHROPIC_API_KEY in backend/.env to enable Claude' : undefined}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wider transition-all duration-300 ${
+                        disabled
+                          ? 'text-white/20 cursor-not-allowed'
+                          : isSelected
+                            ? 'text-purple-300 bg-purple-500/20 border border-purple-500/40 shadow-md'
+                            : 'text-white/50 hover:text-white/90 hover:bg-white/5'
+                      }`}
+                    >
+                      {p === 'ollama' ? <Server size={10} /> : <Cloud size={10} />}
+                      {p === 'ollama' ? 'Ollama' : 'Claude'}
+                    </motion.button>
+                  );
+                })}
+              </div>
+
               <div className="flex items-center glass-panel rounded-full p-1 gap-1 shadow-lg">
                 {autonomyLevels.map(level => {
                   const isSelected = autonomyLevel === level;
@@ -384,6 +412,7 @@ export const AppLayout: React.FC = () => {
                   );
                 })}
               </div>
+              {/* end autonomy selector */}
               <div className="flex flex-1 items-center justify-end gap-2 pr-2">
                 <motion.button
                   whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.94 }}

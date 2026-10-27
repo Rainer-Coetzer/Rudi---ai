@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GitCommit, X, RefreshCw } from 'lucide-react';
+import { safeParse } from '../utils/json';
 
 interface ChangelogPanelProps {
   isOpen: boolean;
@@ -12,12 +13,12 @@ export const ChangelogPanel: React.FC<ChangelogPanelProps> = ({ isOpen, onClose 
   const [loading, setLoading] = useState(false);
 
   const fetchLogs = async () => {
-    if (!window.electronAPI) return;
+    if (!window.desktopAPI) return;
     setLoading(true);
     try {
-      const res = await window.electronAPI.executeTool('self_changelog', {});
+      const res = await window.desktopAPI.executeTool('self_changelog', {});
       if (res.success) {
-        setLogs(JSON.parse(res.result));
+        setLogs(safeParse<any[]>(res.result) ?? []);
       }
     } catch (err) {
       console.error(err);
