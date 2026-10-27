@@ -126,11 +126,6 @@ export function toOllamaTools(tools = TOOLS) {
   }));
 }
 
-/** Anthropic Messages API `tools` format. */
-export function toClaudeTools(tools = TOOLS) {
-  return tools.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters }));
-}
-
 /** One line per tool, for the text-protocol prompt used by models without native tool calling. */
 export function describeToolsAsText(tools = TOOLS) {
   return tools.map(t => {

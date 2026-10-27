@@ -7,7 +7,7 @@ import {
   MODEL_TIERS
 } from '../resourceManager.js';
 import { listInstalledModels, MODEL_CONFIG } from '../modelConfig.js';
-import { getClaudeMode } from '../claudeProvider.js';
+import { getClaudeStatus } from '../claudeProvider.js';
 
 const router = express.Router();
 const ollamaClient = new Ollama({ host: 'http://127.0.0.1:11434' });
@@ -29,14 +29,14 @@ router.get('/health', async (req, res) => {
   } catch {}
 
   CACHED_VRAM_GB = await estimateVRAM_GB();
-  const claudeMode = await getClaudeMode();
+  const claude = await getClaudeStatus();
 
   res.json({
     status: 'online',
     ollama: ollamaOk ? 'ready' : 'unavailable',
     voice: true, // Edge TTS service is active
-    claude: !!claudeMode,
-    claudeMode,  // 'api' | 'subscription' | null
+    claude: claude.available,      // Claude Code CLI signed in with a Claude subscription
+    claudeReason: claude.reason,   // short hint for the UI when not, else null
     vram_gb: CACHED_VRAM_GB,
     installed_models: INSTALLED_MODELS,
     timestamp: Date.now()

@@ -6,6 +6,8 @@ export interface SystemHealth {
   voice: 'ready' | 'fallback' | 'checking' | 'unavailable';
   model: string;
   claude: boolean;
+  /** Why Claude is unavailable, e.g. "Run `claude` and /login."; absent when it is available. */
+  claudeReason?: string;
   currentMode?: string;
 }
 
@@ -39,7 +41,8 @@ export function useHealthMonitor() {
             ollama: data.ollama === 'ready' ? 'ready' : 'unavailable',
             voice: data.voice ? 'ready' : 'unavailable',
             model: data.model || 'Rudi Engine',
-            claude: !!data.claude,
+            claude: data.claude === true,
+            claudeReason: typeof data.claudeReason === 'string' ? data.claudeReason : undefined,
           }));
         }
       } catch {

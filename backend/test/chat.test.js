@@ -1,12 +1,11 @@
-// Run with: node --test backend/test/
-// Exercises /api/chat for both providers against mocked Ollama and Anthropic clients.
+// Run with: node backend/test/chat.test.js
+// Exercises /api/chat's Ollama path against a mocked Ollama client (Claude: see claudeCli.test.js).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { createChatRouter } from '../routes/chat.js';
-import { streamClaudeChat } from '../claudeProvider.js';
-import { toClaudeMessages, normalizeHistory } from '../chatProtocol.js';
+import { normalizeHistory } from '../chatProtocol.js';
 import { TOOLS } from '../tools.js';
 
 async function* fromArray(items) {
@@ -24,14 +23,6 @@ function mockOllama({ model, capabilities, chunks, rejectTools = false }) {
       if (rejectTools && req.tools) throw new Error(`registry.ollama.ai/library/${model} does not support tools`);
       return fromArray(chunks);
     },
-  };
-}
-
-function mockClaude(events) {
-  const calls = [];
-  return {
-    calls,
-    messages: { stream: (req) => { calls.push(req); return fromArray(events); } },
   };
 }
 
@@ -60,7 +51,7 @@ async function postChat(deps, body) {
   }
 }
 
-const noClaude = { mode: async () => null, stream: async () => {}, streamCli: async () => {}, model: () => 'none' };
+const noClaude = { status: async () => ({ available: false, reason: 'x' }), stream: async () => {}, model: () => 'none' };
 
 test('tool schemas are well-formed and unique', () => {
   const names = TOOLS.map(t => t.name);
@@ -179,79 +170,6 @@ test('ollama: provider error becomes an error event', async () => {
   assert.deepEqual(events.map(e => e.type), ['error', 'done']);
 });
 
-test('claude: native tool_use streams as tool_call and history becomes tool_use/tool_result', async () => {
-  const client = mockClaude([
-    { type: 'message_start', message: {} },
-    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
-    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Reading it, ' } },
-    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Sir.' } },
-    { type: 'content_block_stop', index: 0 },
-    { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_01', name: 'read_file', input: {} } },
-    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"pa' } },
-    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: 'th":"README.md"}' } },
-    { type: 'content_block_stop', index: 1 },
-    { type: 'message_delta', delta: { stop_reason: 'tool_use' } },
-    { type: 'message_stop' },
-  ]);
-  const claude = {
-    mode: async () => 'api',
-    model: () => 'claude-test',
-    stream: (opts) => streamClaudeChat({ ...opts, client }),
-  };
-
-  const events = await postChat({ ollamaClient: mockOllama({ model: 'x', chunks: [] }), claude }, {
-    provider: 'claude',
-    message: 'then read the readme',
-    history: [
-      { role: 'assistant', content: 'stale leading turn' },
-      { role: 'user', content: 'list files' },
-      { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_00', name: 'list_dir', params: {} }] },
-      { role: 'tool', toolCallId: 'toolu_00', name: 'list_dir', content: 'README.md' },
-      { role: 'assistant', content: 'Found it.' },
-    ],
-  });
-
-  assert.deepEqual(events, [
-    { type: 'start', toolMode: 'native', provider: 'claude', model: 'claude-test', claudeMode: 'api' },
-    { type: 'text', delta: 'Reading it, ' },
-    { type: 'text', delta: 'Sir.' },
-    { type: 'tool_call', id: 'toolu_01', name: 'read_file', params: { path: 'README.md' } },
-    { type: 'done' },
-  ]);
-
-  const req = client.calls[0];
-  assert.ok(req.tools.some(t => t.name === 'read_file' && t.input_schema.type === 'object'));
-  assert.deepEqual(req.tool_choice, { type: 'auto', disable_parallel_tool_use: true });
-  assert.doesNotMatch(req.system, /```json/);
-  assert.deepEqual(req.messages, [
-    { role: 'user', content: [{ type: 'text', text: 'list files' }] },
-    { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_00', name: 'list_dir', input: {} }] },
-    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_00', content: 'README.md' }] },
-    { role: 'assistant', content: [{ type: 'text', text: 'Found it.' }] },
-    { role: 'user', content: [{ type: 'text', text: 'then read the readme' }] },
-  ]);
-});
-
-test('claude: unanswered tool calls get a result and merge with the next user turn', () => {
-  const msgs = toClaudeMessages([
-    { role: 'user', content: 'delete it' },
-    { role: 'assistant', content: 'Deleting.', toolCalls: [{ id: 'call.x', name: 'delete_file', params: { path: 'a' } }] },
-    { role: 'tool', toolCallId: 'nope', name: 'delete_file', content: 'orphan' },
-    { role: 'user', content: 'actually, stop' },
-  ]);
-  assert.deepEqual(msgs, [
-    { role: 'user', content: [{ type: 'text', text: 'delete it' }] },
-    { role: 'assistant', content: [
-      { type: 'text', text: 'Deleting.' },
-      { type: 'tool_use', id: 'call_x', name: 'delete_file', input: { path: 'a' } },
-    ] },
-    { role: 'user', content: [
-      { type: 'tool_result', tool_use_id: 'call_x', content: 'Tool was not executed.', is_error: true },
-      { type: 'text', text: 'actually, stop' },
-    ] },
-  ]);
-});
-
 test('normalizeHistory keeps legacy {role, content} entries', () => {
   assert.deepEqual(normalizeHistory([
     { role: 'user', content: 'hi' },
@@ -260,5 +178,19 @@ test('normalizeHistory keeps legacy {role, content} entries', () => {
   ]), [
     { role: 'user', content: 'hi' },
     { role: 'assistant', content: 'hello' },
+  ]);
+});
+
+test('normalizeHistory answers tool calls that never got a result', () => {
+  assert.deepEqual(normalizeHistory([
+    { role: 'user', content: 'delete it' },
+    { role: 'assistant', content: 'Deleting.', toolCalls: [{ id: 'call_x', name: 'delete_file', params: { path: 'a' } }] },
+    { role: 'tool', toolCallId: 'nope', name: 'delete_file', content: 'orphan' },
+    { role: 'user', content: 'actually, stop' },
+  ]), [
+    { role: 'user', content: 'delete it' },
+    { role: 'assistant', content: 'Deleting.', toolCalls: [{ id: 'call_x', name: 'delete_file', params: { path: 'a' } }] },
+    { role: 'tool', toolCallId: 'call_x', name: 'delete_file', content: 'Tool was not executed.', isError: true },
+    { role: 'user', content: 'actually, stop' },
   ]);
 });

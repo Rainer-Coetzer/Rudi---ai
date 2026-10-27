@@ -3,8 +3,7 @@ import { Ollama } from 'ollama';
 import { getOptimalParams, estimateVRAM_GB } from '../resourceManager.js';
 import { MODEL_CONFIG, listInstalledModels, supportsTools, markNoToolSupport } from '../modelConfig.js';
 import { getRelevantContext } from '../knowledgeStore.js';
-import { getClaudeMode, streamClaudeChat, claudeModel } from '../claudeProvider.js';
-import { streamClaudeCliChat } from '../claudeCliProvider.js';
+import { getClaudeStatus, streamClaudeChat, claudeModel } from '../claudeProvider.js';
 import { buildBasePrompt } from '../prompt.js';
 import { toOllamaTools } from '../tools.js';
 import {
@@ -48,7 +47,7 @@ function lastUserText(history) {
  */
 export function createChatRouter({
   ollamaClient = new Ollama({ host: 'http://127.0.0.1:11434' }),
-  claude = { mode: getClaudeMode, stream: streamClaudeChat, streamCli: streamClaudeCliChat, model: claudeModel },
+  claude = { status: getClaudeStatus, stream: streamClaudeChat, model: claudeModel },
   getContext = getRelevantContext,
   estimateVRAM = estimateVRAM_GB,
 } = {}) {
@@ -112,17 +111,13 @@ export function createChatRouter({
       buildBasePrompt(toolMode) + modeInstructions + knowledgeContext + memoryContext + "\n\n" + projectContext;
 
     try {
-      const claudeMode = provider === 'claude' ? await claude.mode() : null;
+      const useClaude = provider === 'claude' && (await claude.status()).available;
 
-      if (claudeMode === 'api') {
-        console.log(`[CHAT] ${reqTag} Routing to Claude API (native tools)`);
-        emit({ type: 'start', toolMode: 'native', provider: 'claude', model: claude.model('api'), claudeMode });
-        await claude.stream({ system: systemFor('native'), messages: chatMessages, emit });
-      } else if (claudeMode === 'subscription') {
+      if (useClaude) {
         // Claude Code CLI with its own tools off; Rudi's tools use the text protocol.
         console.log(`[CHAT] ${reqTag} Routing to Claude CLI (subscription, text tools)`);
-        emit({ type: 'start', toolMode: 'text', provider: 'claude', model: claude.model('subscription'), claudeMode });
-        await claude.streamCli({ system: systemFor('text'), messages: chatMessages, emit, signal: abort.signal });
+        emit({ type: 'start', toolMode: 'text', provider: 'claude', model: claude.model() });
+        await claude.stream({ system: systemFor('text'), messages: chatMessages, emit, signal: abort.signal });
       } else {
         const models = await listInstalledModels(ollamaClient);
         const selectedModel = selectModel(topic, models);

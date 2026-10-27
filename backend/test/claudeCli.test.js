@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { createChatRouter } from '../routes/chat.js';
-import { streamClaudeCliChat, isCliLoggedIn, createCliEventMapper } from '../claudeCliProvider.js';
+import { streamClaudeChat, getClaudeStatus, createCliEventMapper } from '../claudeProvider.js';
 
 const MOCK = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'mock-claude.mjs');
 const cli = { command: process.execPath, prefixArgs: [MOCK] };
@@ -33,10 +33,9 @@ function subscriptionDeps() {
     getContext: async () => '',
     estimateVRAM: async () => 0,
     claude: {
-      mode: async () => 'subscription',
+      status: () => getClaudeStatus({ cli, force: true }),
       model: () => 'sonnet',
-      stream: async () => { throw new Error('API path must not be used'); },
-      streamCli: (opts) => streamClaudeCliChat({ ...opts, cli }),
+      stream: (opts) => streamClaudeChat({ ...opts, cli }),
     },
   };
 }
@@ -77,7 +76,7 @@ test('subscription: streams CLI text deltas in text tool mode', async () => {
   });
 
   assert.deepEqual(events, [
-    { type: 'start', toolMode: 'text', provider: 'claude', model: 'sonnet', claudeMode: 'subscription' },
+    { type: 'start', toolMode: 'text', provider: 'claude', model: 'sonnet' },
     { type: 'text', delta: 'Checking, Sir.\n```json\n{"tool":"git_status",' },
     { type: 'text', delta: '"params":{}}\n```' },
     { type: 'done' },
@@ -118,7 +117,7 @@ test('subscription: expired sign-in becomes a readable error', async () => {
 
 test('subscription: missing CLI becomes an error event', async () => {
   const emitted = [];
-  await streamClaudeCliChat({
+  await streamClaudeChat({
     system: 's', messages: [{ role: 'user', content: 'hi' }], emit: e => emitted.push(e),
     cli: { command: path.join(os.tmpdir(), 'definitely-not-claude.exe'), prefixArgs: [] },
   });
@@ -159,11 +158,42 @@ test('CLI without partial messages falls back to the assistant message', () => {
   assert.deepEqual(emitted, [{ type: 'text', delta: 'Whole reply, Sir.' }]);
 });
 
-test('auth status: only a claude.ai login counts', async () => {
+test('auth status: only a claude.ai login counts, with a reason otherwise', async () => {
   process.env.MOCK_CLAUDE_SCENARIO = 'ok';
-  assert.equal(await isCliLoggedIn({ cli, force: true }), true);
+  assert.deepEqual(await getClaudeStatus({ cli, force: true }), { available: true, reason: null });
   process.env.MOCK_CLAUDE_SCENARIO = 'api-key';
-  assert.equal(await isCliLoggedIn({ cli, force: true }), false);
+  assert.match((await getClaudeStatus({ cli, force: true })).reason, /not signed in with a Claude subscription/);
   process.env.MOCK_CLAUDE_SCENARIO = 'logged-out';
-  assert.equal(await isCliLoggedIn({ cli, force: true }), false);
+  assert.deepEqual(await getClaudeStatus({ cli, force: true }), { available: false, reason: 'Run `claude` and /login.' });
+  const missing = await getClaudeStatus({ cli: { command: path.join(os.tmpdir(), 'no-claude-here.exe'), prefixArgs: [] }, force: true });
+  assert.deepEqual(missing, { available: false, reason: 'Install Claude Code, then run `claude` and /login.' });
+});
+
+test('chat: Claude selected but signed out falls back to Ollama', async () => {
+  process.env.MOCK_CLAUDE_SCENARIO = 'logged-out';
+  await getClaudeStatus({ cli, force: true });
+  const app = express();
+  app.use(express.json());
+  app.use('/api/chat', createChatRouter({
+    ...subscriptionDeps(),
+    ollamaClient: {
+      list: async () => ({ models: [{ name: 'llama3.2:1b' }] }),
+      show: async () => ({ capabilities: ['tools'] }),
+      chat: async () => (async function* () { yield { message: { content: 'Ollama here.' } }; })(),
+    },
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(r => server.once('listening', r));
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'claude', message: 'hi' }),
+    });
+    const events = (await res.text()).split('\n').filter(Boolean).map(l => JSON.parse(l));
+    assert.equal(events[0].provider, 'ollama');
+    assert.equal(fs.existsSync(LOG), false, 'CLI must not be spawned for chat');
+  } finally {
+    server.close();
+    server.closeAllConnections();
+  }
 });

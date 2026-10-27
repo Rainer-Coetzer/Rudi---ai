@@ -42,10 +42,10 @@ function cleanToolCalls(calls) {
 }
 
 /**
- * Repairs a history so either provider accepts it: drops malformed entries and
- * tool results with no matching call, adds a "not executed" result for every
- * call that never got one (Claude rejects an unanswered tool_use), and drops
- * anything before the first user message (history is sliced by length).
+ * Repairs a history: drops malformed entries and tool results with no matching
+ * call, adds a "not executed" result for every call that never got one (blocked,
+ * declined or skipped) so the model knows it did not run, and drops anything
+ * before the first user message (history is sliced by length).
  */
 export function normalizeHistory(history) {
   const out = [];
@@ -123,44 +123,6 @@ export function toOllamaMessages(history) {
     }
     return { role: m.role, content: m.content };
   });
-}
-
-/** Claude tool_use ids must match ^[a-zA-Z0-9_-]+$. */
-const claudeId = (id) => id.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-/**
- * Anthropic messages: tool_use blocks on assistant turns, tool_result blocks on
- * the following user turn. Consecutive same-role turns are merged so tool results
- * and a new user message share one user turn.
- */
-export function toClaudeMessages(history) {
-  const out = [];
-  const push = (role, blocks) => {
-    if (blocks.length === 0) return;
-    const last = out[out.length - 1];
-    if (last && last.role === role) last.content.push(...blocks);
-    else out.push({ role, content: blocks });
-  };
-
-  for (const m of normalizeHistory(history)) {
-    if (m.role === 'tool') {
-      push('user', [{
-        type: 'tool_result',
-        tool_use_id: claudeId(m.toolCallId),
-        content: m.content || '(no output)',
-        ...(m.isError ? { is_error: true } : {}),
-      }]);
-    } else if (m.role === 'assistant') {
-      const blocks = m.content.trim() ? [{ type: 'text', text: m.content }] : [];
-      for (const c of m.toolCalls ?? []) {
-        blocks.push({ type: 'tool_use', id: claudeId(c.id), name: c.name, input: c.params });
-      }
-      push('assistant', blocks);
-    } else if (m.content.trim()) {
-      push('user', [{ type: 'text', text: m.content }]);
-    }
-  }
-  return out;
 }
 
 function parseArguments(args) {
