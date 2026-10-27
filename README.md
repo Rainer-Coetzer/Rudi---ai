@@ -46,7 +46,7 @@ Rudi is built for users who demand privacy without compromising on power. Unlike
    ```bash
    npm install --prefix backend
    ```
-   For Claude access, put `ANTHROPIC_API_KEY=...` in `backend/.env` (dev) or in `.env` inside the data folder (installed app).
+   For Claude, Rudi uses your Claude subscription through [Claude Code](https://claude.com/claude-code); no API key is needed. Install Claude Code and sign in once: run `claude`, then `/login`.
 4. **Run in Development** (desktop app, with hot reload):
    ```bash
    npm run app:dev
