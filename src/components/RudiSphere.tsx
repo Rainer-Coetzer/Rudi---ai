@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RudiState } from '../hooks/useRudi';
 import type { AutonomyLevel } from '../utils/autonomy';
@@ -190,18 +190,122 @@ const fragmentShader = `
   }
 `;
 
+
+// Per-frame constants were tuned at 60fps; scale by real frame time so the
+// look holds at reduced idle rates and on high-refresh displays.
+const BASE_FPS = 60;
+const MAX_DELTA = 0.1;
+const IDLE_FPS = 24;
+const REDUCED_MOTION_IDLE_FPS = 15;
+const REDUCED_MOTION_SPEED = 0.35;
+// Keep full rate this long after activity so lerps settle smoothly.
+const SETTLE_MS = 1500;
+const AMPLITUDE_EPSILON = 0.01;
+
+const STATE_FLOAT: Record<RudiState, number> = {
+  idle: 0.0,
+  listening: 1.0,
+  thinking: 2.0,
+  speaking: 3.0,
+  executing: 0.0,
+};
+
+const TOOL_STATE_FLOAT: Record<NonNullable<RudiSphereProps['globalToolStatus']>, number> = {
+  idle: 0.0,
+  running: 1.0,
+  success: 2.0,
+  error: 3.0,
+  blocked: 0.0,
+};
+
+const AUTONOMY_FLOAT: Record<AutonomyLevel, number> = { observe: 0.0, assist: 1.0, autonomous: 2.0 };
+const AUTONOMY_SPEED: Record<AutonomyLevel, number> = { observe: 0.3, assist: 1.0, autonomous: 1.8 };
+
+// Frame-rate independent equivalent of lerp(a, b, alpha) applied once per 60fps frame.
+const damp = (current: number, target: number, alpha: number, delta: number) =>
+  THREE.MathUtils.lerp(current, target, 1 - Math.pow(1 - alpha, delta * BASE_FPS));
+
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(() => window.matchMedia(REDUCED_MOTION_QUERY).matches);
+  useEffect(() => {
+    const query = window.matchMedia(REDUCED_MOTION_QUERY);
+    const onChange = () => setReduced(query.matches);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+  return reduced;
+}
+
+type LoopMode = 'full' | 'idle' | 'hidden';
+
 export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globalToolStatus = 'idle', autonomyLevel = 'assist' }) => {
   const meshRef = useRef<THREE.Points>(null);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
   const [hovered, setHovered] = useState(false);
   const pulseRef = useRef(0);
-  
+
   const ringRef = useRef<THREE.Points>(null);
   const spinnerRef = useRef<THREE.Points>(null);
   const amplitudeRef = useRef(amplitude);
 
   // Sync prop to ref on every render to ensure useFrame sees the latest value
   amplitudeRef.current = amplitude;
+
+  const setFrameloop = useThree((s) => s.setFrameloop);
+  const invalidate = useThree((s) => s.invalidate);
+  const reducedMotion = usePrefersReducedMotion();
+
+  // Own clock: setFrameloop() resets the r3f clock, so uTime can't use elapsedTime.
+  const timeRef = useRef(0);
+  const loopModeRef = useRef<LoopMode | null>(null);
+  const idleTimerRef = useRef<number | null>(null);
+  const activeUntilRef = useRef(0);
+
+  // "full" renders every display frame; "idle" renders on demand at a reduced
+  // rate; "hidden" stops rendering until the document is visible again.
+  const applyLoopMode = useCallback((mode: LoopMode) => {
+    loopModeRef.current = mode;
+    if (idleTimerRef.current !== null) {
+      window.clearInterval(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (mode === 'full') {
+      setFrameloop('always');
+    } else if (mode === 'hidden') {
+      setFrameloop('never');
+    } else {
+      setFrameloop('demand');
+      const fps = reducedMotion ? REDUCED_MOTION_IDLE_FPS : IDLE_FPS;
+      idleTimerRef.current = window.setInterval(() => invalidate(), 1000 / fps);
+    }
+  }, [setFrameloop, invalidate, reducedMotion]);
+
+  const wake = useCallback(() => {
+    activeUntilRef.current = performance.now() + SETTLE_MS;
+    if (!document.hidden) applyLoopMode('full');
+  }, [applyLoopMode]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden) applyLoopMode('hidden');
+      else wake();
+    };
+    onVisibilityChange();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (idleTimerRef.current !== null) window.clearInterval(idleTimerRef.current);
+      idleTimerRef.current = null;
+      setFrameloop('always');
+    };
+  }, [applyLoopMode, wake, setFrameloop]);
+
+  // Return to full rate as soon as any visual input changes.
+  useEffect(() => {
+    wake();
+  }, [state, globalToolStatus, autonomyLevel, hovered, wake]);
 
   const particlesCount = 8000;
   const positions = useMemo(() => {
@@ -244,91 +348,98 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
     return pos;
   }, [spinnerParticlesCount]);
 
-  useFrame((sceneState) => {
-    const time = sceneState.clock.elapsedTime;
+  // Created once so React never hands three.js a fresh uniforms object.
+  const uniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uState: { value: 0 },
+    uAmplitude: { value: 0 },
+    uToolState: { value: 0 },
+    uAutonomy: { value: 1.0 },
+    uHover: { value: 0 },
+    uPulse: { value: 0 }
+  }), []);
 
+  useFrame((sceneState, rawDelta) => {
+    // Clamp so a resume after a pause or idle gap doesn't jump the animation.
+    const delta = Math.min(rawDelta, MAX_DELTA);
+    const speed = reducedMotion ? REDUCED_MOTION_SPEED : 1.0;
+    // Per-frame step in units of 60fps frames.
+    const step = delta * BASE_FPS * speed;
+    timeRef.current += delta * speed;
+    const time = timeRef.current;
+
+    let smoothedAmplitude = 0;
     if (materialRef.current) {
-      materialRef.current.uniforms.uTime.value = time;
+      const u = materialRef.current.uniforms;
+      u.uTime.value = time;
+      u.uState.value = STATE_FLOAT[state];
+      u.uToolState.value = damp(u.uToolState.value, TOOL_STATE_FLOAT[globalToolStatus], 0.1, delta);
+      u.uAutonomy.value = damp(u.uAutonomy.value, AUTONOMY_FLOAT[autonomyLevel], 0.1, delta);
+      u.uAmplitude.value = damp(u.uAmplitude.value, amplitudeRef.current, 0.15, delta);
+      u.uHover.value = damp(u.uHover.value, hovered ? 1.0 : 0.0, 0.1, delta);
+      u.uPulse.value = damp(u.uPulse.value, pulseRef.current, 0.1, delta);
+      smoothedAmplitude = u.uAmplitude.value;
+    }
 
-      let stateFloat = 0.0;
-      if (state === RudiState.Listening) stateFloat = 1.0;
-      else if (state === RudiState.Thinking) stateFloat = 2.0;
-      else if (state === RudiState.Speaking) stateFloat = 3.0;
-
-      materialRef.current.uniforms.uState.value = stateFloat;
-
-      let toolStateFloat = 0.0;
-      if (globalToolStatus === 'running') toolStateFloat = 1.0;
-      if (globalToolStatus === 'success') toolStateFloat = 2.0;
-      if (globalToolStatus === 'error') toolStateFloat = 3.0;
-
-      materialRef.current.uniforms.uToolState.value = THREE.MathUtils.lerp(
-        materialRef.current.uniforms.uToolState.value, toolStateFloat, 0.1
-      );
-
-      let autonomyFloat = 1.0;
-      if (autonomyLevel === 'observe') autonomyFloat = 0.0;
-      if (autonomyLevel === 'autonomous') autonomyFloat = 2.0;
-
-      materialRef.current.uniforms.uAutonomy.value = THREE.MathUtils.lerp(
-        materialRef.current.uniforms.uAutonomy.value, autonomyFloat, 0.1
-      );
-
-      materialRef.current.uniforms.uAmplitude.value = THREE.MathUtils.lerp(
-        materialRef.current.uniforms.uAmplitude.value, amplitudeRef.current, 0.15
-      );
-
-      materialRef.current.uniforms.uHover.value = THREE.MathUtils.lerp(
-        materialRef.current.uniforms.uHover.value, hovered ? 1.0 : 0.0, 0.1
-      );
-
-      materialRef.current.uniforms.uPulse.value = THREE.MathUtils.lerp(
-        materialRef.current.uniforms.uPulse.value, pulseRef.current, 0.1
-      );
-
-      if (pulseRef.current > 0) {
-        pulseRef.current -= 0.02; // decay pulse
-        if (pulseRef.current < 0) pulseRef.current = 0;
-      }
+    if (pulseRef.current > 0) {
+      pulseRef.current -= 0.02 * delta * BASE_FPS; // decay pulse
+      if (pulseRef.current < 0) pulseRef.current = 0;
     }
 
     if (meshRef.current) {
       // Speed up in AUTONOMOUS mode, slow in OBSERVE mode
-      const autonomyMult = autonomyLevel === 'autonomous' ? 1.8 : autonomyLevel === 'observe' ? 0.3 : 1.0;
-      meshRef.current.rotation.y += (globalToolStatus === 'running' ? 0.012 : 0.0008) * autonomyMult;
-      meshRef.current.rotation.x += (globalToolStatus === 'running' ? 0.006 : 0.0004) * autonomyMult;
+      const autonomyMult = AUTONOMY_SPEED[autonomyLevel];
+      meshRef.current.rotation.y += (globalToolStatus === 'running' ? 0.012 : 0.0008) * autonomyMult * step;
+      meshRef.current.rotation.x += (globalToolStatus === 'running' ? 0.006 : 0.0004) * autonomyMult * step;
 
       if (state === RudiState.Thinking) {
-        meshRef.current.rotation.y += 0.005;
+        meshRef.current.rotation.y += 0.005 * step;
       }
     }
 
     // Animate Overlays
     if (ringRef.current) {
+      const ringMaterial = ringRef.current.material as THREE.PointsMaterial;
       ringRef.current.scale.setScalar(1.2 + Math.sin(time * 1.5) * 0.04 + amplitudeRef.current * 0.2);
-      ringRef.current.rotation.z += 0.002;
-      (ringRef.current.material as THREE.PointsMaterial).opacity =
-        THREE.MathUtils.lerp(
-          (ringRef.current.material as THREE.PointsMaterial).opacity,
-          state === RudiState.Listening ? 0.4 + amplitudeRef.current : 0, 0.05
-        );
+      ringRef.current.rotation.z += 0.002 * step;
+      ringMaterial.opacity = damp(
+        ringMaterial.opacity, state === RudiState.Listening ? 0.4 + amplitudeRef.current : 0, 0.05, delta
+      );
+      // Skip the 1,000-point draw entirely once it has faded out.
+      ringRef.current.visible = ringMaterial.opacity > 0.001;
     }
 
     if (spinnerRef.current) {
-      spinnerRef.current.rotation.z -= 0.018;
-      (spinnerRef.current.material as THREE.PointsMaterial).opacity =
-        THREE.MathUtils.lerp(
-          (spinnerRef.current.material as THREE.PointsMaterial).opacity,
-          state === RudiState.Thinking ? 0.7 : 0, 0.06
-        );
+      const spinnerMaterial = spinnerRef.current.material as THREE.PointsMaterial;
+      spinnerRef.current.rotation.z -= 0.018 * step;
+      spinnerMaterial.opacity = damp(
+        spinnerMaterial.opacity, state === RudiState.Thinking ? 0.7 : 0, 0.06, delta
+      );
+      spinnerRef.current.visible = spinnerMaterial.opacity > 0.001;
     }
+
+    // Pick the render rate for the next frame. Re-checked every frame because a
+    // <Canvas> re-render resets the frameloop to its own prop.
+    const now = performance.now();
+    const active =
+      state !== RudiState.Idle ||
+      globalToolStatus !== 'idle' ||
+      hovered ||
+      pulseRef.current > 0 ||
+      amplitudeRef.current > AMPLITUDE_EPSILON ||
+      smoothedAmplitude > AMPLITUDE_EPSILON;
+    if (active) activeUntilRef.current = now + SETTLE_MS;
+
+    const mode: LoopMode = document.hidden ? 'hidden' : now < activeUntilRef.current ? 'full' : 'idle';
+    const expectedLoop = mode === 'full' ? 'always' : mode === 'idle' ? 'demand' : 'never';
+    if (mode !== loopModeRef.current || sceneState.frameloop !== expectedLoop) applyLoopMode(mode);
   });
 
   return (
     <group
       onPointerOver={() => setHovered(true)}
       onPointerOut={() => setHovered(false)}
-      onPointerDown={() => { pulseRef.current = 1.0; }}
+      onPointerDown={() => { pulseRef.current = 1.0; wake(); }}
     >
       {/* Main Particle Sphere */}
       <points ref={meshRef}>
@@ -348,28 +459,20 @@ export const RudiSphere = React.memo<RudiSphereProps>(({ state, amplitude, globa
           transparent={true}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
-          uniforms={{
-            uTime: { value: 0 },
-            uState: { value: 0 },
-            uAmplitude: { value: 0 },
-            uToolState: { value: 0 },
-            uAutonomy: { value: 1.0 },
-            uHover: { value: 0 },
-            uPulse: { value: 0 }
-          }}
+          uniforms={uniforms}
         />
       </points>
-      
+
       {/* Listening Ring Particles */}
-      <points ref={ringRef} visible={true}>
+      <points ref={ringRef} visible={false}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={ringParticlesCount} array={ringPositions} itemSize={3} args={[ringPositions, 3]} />
         </bufferGeometry>
         <pointsMaterial size={0.015} color="#4ade80" transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} />
       </points>
-      
+
       {/* Thinking Spinner Particles */}
-      <points ref={spinnerRef} visible={true}>
+      <points ref={spinnerRef} visible={false}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" count={spinnerParticlesCount} array={spinnerPositions} itemSize={3} args={[spinnerPositions, 3]} />
         </bufferGeometry>
