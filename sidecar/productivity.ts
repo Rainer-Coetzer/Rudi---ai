@@ -10,7 +10,25 @@ function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-function readJSON(filePath: string, defaultData: any) {
+export interface Task {
+  id: string;
+  text: string;
+  priority: string;
+  status: 'pending' | 'completed';
+  created: string;
+  completed: string | null;
+  tags: string[];
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  description: string;
+}
+
+function readJSON<T>(filePath: string, defaultData: T): T {
   try {
     ensureDataDir();
     if (!fs.existsSync(filePath)) {
@@ -25,7 +43,7 @@ function readJSON(filePath: string, defaultData: any) {
   }
 }
 
-function writeJSON(filePath: string, data: any) {
+function writeJSON(filePath: string, data: unknown) {
   try {
     ensureDataDir();
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
@@ -38,13 +56,13 @@ function writeJSON(filePath: string, data: any) {
 
 // ── Tasks ────────────────────────────────────────────────────────────────
 export function listTasks() {
-  const data = readJSON(TASKS_FILE, { tasks: [] });
+  const data = readJSON<{ tasks: Task[] }>(TASKS_FILE, { tasks: [] });
   return data.tasks;
 }
 
 export function createTask(text: string, priority: string = 'medium', tags: string[] = []) {
-  const data = readJSON(TASKS_FILE, { tasks: [] });
-  const newTask = {
+  const data = readJSON<{ tasks: Task[] }>(TASKS_FILE, { tasks: [] });
+  const newTask: Task = {
     id: Date.now().toString(),
     text,
     priority,
@@ -59,12 +77,12 @@ export function createTask(text: string, priority: string = 'medium', tags: stri
 }
 
 export function completeTask(id: string) {
-  const data = readJSON(TASKS_FILE, { tasks: [] });
+  const data = readJSON<{ tasks: Task[] }>(TASKS_FILE, { tasks: [] });
   let found = false;
-  data.tasks = data.tasks.map((t: any) => {
+  data.tasks = data.tasks.map((t) => {
     if (t.id === id) {
       found = true;
-      return { ...t, status: 'completed', completed: new Date().toISOString() };
+      return { ...t, status: 'completed' as const, completed: new Date().toISOString() };
     }
     return t;
   });
@@ -73,9 +91,9 @@ export function completeTask(id: string) {
 }
 
 export function deleteTask(id: string) {
-  const data = readJSON(TASKS_FILE, { tasks: [] });
+  const data = readJSON<{ tasks: Task[] }>(TASKS_FILE, { tasks: [] });
   const initialLength = data.tasks.length;
-  data.tasks = data.tasks.filter((t: any) => t.id !== id);
+  data.tasks = data.tasks.filter((t) => t.id !== id);
   if (data.tasks.length !== initialLength) {
     writeJSON(TASKS_FILE, data);
     return true;
@@ -85,13 +103,13 @@ export function deleteTask(id: string) {
 
 // ── Calendar ─────────────────────────────────────────────────────────────
 export function readCalendar() {
-  const data = readJSON(CALENDAR_FILE, { events: [] });
+  const data = readJSON<{ events: CalendarEvent[] }>(CALENDAR_FILE, { events: [] });
   return data.events;
 }
 
 export function addEvent(title: string, start: string, end: string, description: string = '') {
-  const data = readJSON(CALENDAR_FILE, { events: [] });
-  const newEvent = {
+  const data = readJSON<{ events: CalendarEvent[] }>(CALENDAR_FILE, { events: [] });
+  const newEvent: CalendarEvent = {
     id: Date.now().toString(),
     title,
     start,
@@ -104,9 +122,9 @@ export function addEvent(title: string, start: string, end: string, description:
 }
 
 export function removeEvent(id: string) {
-  const data = readJSON(CALENDAR_FILE, { events: [] });
+  const data = readJSON<{ events: CalendarEvent[] }>(CALENDAR_FILE, { events: [] });
   const initialLength = data.events.length;
-  data.events = data.events.filter((e: any) => e.id !== id);
+  data.events = data.events.filter((e) => e.id !== id);
   if (data.events.length !== initialLength) {
     writeJSON(CALENDAR_FILE, data);
     return true;
@@ -118,8 +136,8 @@ export function getUpcomingEvents() {
   const events = readCalendar();
   const now = new Date().toISOString();
   return events
-    .filter((e: any) => e.start >= now)
-    .sort((a: any, b: any) => new Date(a.start).getTime() - new Date(b.start).getTime())
+    .filter((e) => e.start >= now)
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
     .slice(0, 5); // next 5 events
 }
 
@@ -134,7 +152,7 @@ export function startReminderService() {
     const events = readCalendar();
     const now = new Date();
     
-    events.forEach((evt: any) => {
+    events.forEach((evt) => {
       const startTime = new Date(evt.start);
       const diffMs = startTime.getTime() - now.getTime();
       const diffMin = Math.round(diffMs / 60000);
@@ -160,23 +178,23 @@ export function generateDailySummary() {
   
   const todayStr = now.toISOString().split('T')[0];
   
-  const completedToday = tasks.filter((t: any) => t.status === 'completed' && t.completed?.startsWith(todayStr));
-  const newTasks = tasks.filter((t: any) => t.status === 'pending');
-  const eventsToday = events.filter((e: any) => e.start.startsWith(todayStr));
+  const completedToday = tasks.filter((t) => t.status === 'completed' && t.completed?.startsWith(todayStr));
+  const newTasks = tasks.filter((t) => t.status === 'pending');
+  const eventsToday = events.filter((e) => e.start.startsWith(todayStr));
   
   const greeting = now.getHours() < 12 ? 'morning' : now.getHours() < 17 ? 'afternoon' : 'evening';
   
   let summary = `Good ${greeting}, Sir.\n\n`;
   
   summary += `**Tasks Completed Today:** ${completedToday.length}\n`;
-  completedToday.forEach((t: any) => summary += `- ${t.text}\n`);
+  completedToday.forEach((t) => summary += `- ${t.text}\n`);
   
   summary += `\n**Pending Tasks:** ${newTasks.length}\n`;
-  newTasks.slice(0, 5).forEach((t: any) => summary += `- [${t.priority}] ${t.text}\n`);
+  newTasks.slice(0, 5).forEach((t) => summary += `- [${t.priority}] ${t.text}\n`);
   if (newTasks.length > 5) summary += `- ... and ${newTasks.length - 5} more.\n`;
   
   summary += `\n**Events Today:** ${eventsToday.length}\n`;
-  eventsToday.forEach((e: any) => {
+  eventsToday.forEach((e) => {
     const time = new Date(e.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     summary += `- ${time}: ${e.title}\n`;
   });

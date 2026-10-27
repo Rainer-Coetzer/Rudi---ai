@@ -15,7 +15,7 @@ export async function getProjectContext(): Promise<string> {
     let context = `\n\n[PROJECT_CONTEXT]\nRoot: ${root}\n`;
 
     if (fs.existsSync(pkgPath)) {
-      let pkg: any = {};
+      let pkg: { name?: string; version?: string; scripts?: Record<string, unknown> } = {};
       try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')); } catch { /* ignore malformed */ }
       context += `Name: ${pkg.name}\nVersion: ${pkg.version}\nScripts: ${Object.keys(pkg.scripts || {}).join(', ')}\n`;
     }
@@ -26,7 +26,7 @@ export async function getProjectContext(): Promise<string> {
     }
 
     return context;
-  } catch (err) {
+  } catch {
     return '';
   }
 }

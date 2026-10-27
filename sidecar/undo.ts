@@ -4,8 +4,7 @@
  */
 
 import fs from 'fs/promises';
-import { existsSync, readFileSync } from 'fs'; // sync used only for initial snapshot to avoid blocking tool execution start
-import path from 'path';
+import { existsSync, readFileSync, statSync } from 'fs'; // sync used only for initial snapshot to avoid blocking tool execution start
 
 interface Snapshot {
   id: string;
@@ -17,13 +16,13 @@ interface Snapshot {
 }
 
 // In-memory stack for now (cap at 10)
-let undoStack: Snapshot[] = [];
+const undoStack: Snapshot[] = [];
 
 export function captureSnapshot(filePath: string, action: Snapshot['action'], oldPath?: string) {
   try {
     let content = '';
     if (existsSync(filePath)) {
-      const stats = require('fs').statSync(filePath);
+      const stats = statSync(filePath);
       // Safety Cap: Don't store more than 1MB in memory
       if (stats.size > 1024 * 1024) {
         console.warn(`[UNDO SYSTEM] File too large for snapshot: ${filePath}`);
@@ -81,8 +80,8 @@ export async function undoLastAction(): Promise<{ success: boolean; result: stri
     }
 
     return { success: false, result: 'Unknown action type.' };
-  } catch (err: any) {
-    return { success: false, result: `Undo failed: ${err.message}` };
+  } catch (err) {
+    return { success: false, result: `Undo failed: ${(err as Error).message}` };
   }
 }
 

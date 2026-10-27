@@ -1,6 +1,5 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { captureSnapshot } from '../undo.js';
 
 function validatePath(filePath, root) {
   if (!filePath) return false;
@@ -27,7 +26,8 @@ export default {
   permission: 'caution',
   autonomy: 'assist',
   
-  execute: async (params) => {
+  // ctx is injected by ToolsManager — plugins are loaded unbundled, so they can't import sidecar modules.
+  execute: async (params, ctx) => {
     const root = params.__root || process.cwd();
     if (!validatePath(params.path, root)) return { success: false, result: 'Security block: Path traversal detected.' };
     // Write to the resolved path; the raw one would be relative to the sidecar's cwd.
@@ -35,7 +35,7 @@ export default {
     
     const dir = path.dirname(filePath);
     await fs.mkdir(dir, { recursive: true });
-    captureSnapshot(filePath, 'write');
+    ctx.captureSnapshot(filePath, 'write');
     await fs.writeFile(filePath, params.content, 'utf-8');
     
     return { success: true, result: `Successfully written to ${filePath}.` };

@@ -1,19 +1,31 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { pathToFileURL } from 'url';
 import { privilegedValidateTool } from '../security';
 import { getRudiRoot, getWorkspaceRoot } from '../workspace';
+import { captureSnapshot, undoLastAction } from '../undo';
 
 export interface ToolSchema {
   name: string;
   description: string;
-  parameters: any;
+  parameters: Record<string, unknown>;
   permission?: 'safe' | 'caution' | 'dangerous';
   autonomy?: 'assist' | 'autonomous';
 }
 
+/**
+ * Sidecar services handed to every plugin. Plugins are loaded unbundled from
+ * sidecar/plugins (or <resources>/sidecar/plugins), so they can't import sidecar modules.
+ */
+export interface PluginContext {
+  captureSnapshot: typeof captureSnapshot;
+  undoLastAction: typeof undoLastAction;
+}
+
+const PLUGIN_CONTEXT: PluginContext = { captureSnapshot, undoLastAction };
+
 export interface ToolPlugin extends ToolSchema {
-  execute: (params: any) => Promise<{ success: boolean; result: string }>;
+  execute: (params: any, ctx: PluginContext) => Promise<{ success: boolean; result: string }>;
 }
 
 export class ToolsManager {
@@ -22,10 +34,6 @@ export class ToolsManager {
   private pluginsDir: string;
 
   private constructor() {
-    // Determine plugins directory (relative to built main.js)
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    
     // Always relative to Rudi's install root, not the user's workspace.
     this.pluginsDir = path.resolve(getRudiRoot(), 'sidecar', 'plugins');
     if (!fs.existsSync(this.pluginsDir)) {
@@ -83,8 +91,8 @@ export class ToolsManager {
         this.plugins.set(plugin.name, plugin);
         console.log(`[TOOLS] Loaded JS Plugin: ${plugin.name}`);
       }
-    } catch (err: any) {
-      console.error(`[TOOLS] Failed to load plugin ${filePath}:`, err.message);
+    } catch (err) {
+      console.error(`[TOOLS] Failed to load plugin ${filePath}:`, (err as Error).message);
     }
   }
 
@@ -106,7 +114,7 @@ export class ToolsManager {
     });
   }
 
-  private async executePythonScript(filePath: string, params: any): Promise<{ success: boolean; result: string }> {
+  private async executePythonScript(filePath: string, params: unknown): Promise<{ success: boolean; result: string }> {
     const { spawn } = await import('child_process');
     return new Promise((resolve) => {
       const process = spawn('python', [filePath, JSON.stringify(params)]);
@@ -136,7 +144,7 @@ export class ToolsManager {
     }));
   }
 
-  public async executeTool(name: string, params: any): Promise<{ success: boolean; result: string }> {
+  public async executeTool(name: string, params: Record<string, unknown>): Promise<{ success: boolean; result: string }> {
     // Privileged re-validation before dispatching to any plugin.
     const gate = privilegedValidateTool(name, params);
     if (!gate.valid) {
@@ -157,9 +165,9 @@ export class ToolsManager {
     };
 
     try {
-      return await plugin.execute(enrichedParams);
-    } catch (err: any) {
-      return { success: false, result: `Execution error: ${err.message}` };
+      return await plugin.execute(enrichedParams, PLUGIN_CONTEXT);
+    } catch (err) {
+      return { success: false, result: `Execution error: ${(err as Error).message}` };
     }
   }
 }

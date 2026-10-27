@@ -19,7 +19,7 @@ export default {
   permission: 'caution',
   autonomy: 'autonomous',
   
-  execute: async (params: any) => {
+  execute: async (params) => {
     return new Promise((resolve) => {
       const cwd = params.cwd || process.cwd();
       child_process.exec(params.command, { cwd, shell: 'powershell.exe' }, (error, stdout, stderr) => {
