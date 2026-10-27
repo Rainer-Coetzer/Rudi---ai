@@ -13,7 +13,7 @@ export default {
   permission: 'safe',
   autonomy: 'assist',
   
-  execute: async (params: any) => {
+  execute: async (params) => {
     const appName = params.app?.toLowerCase() || '';
     const appMap = {
       vscode: 'code', terminal: 'wt', browser: 'chrome', calculator: 'calc'

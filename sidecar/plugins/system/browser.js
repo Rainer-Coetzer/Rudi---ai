@@ -1,36 +1,41 @@
-import { chromium, Browser, BrowserContext, Page } from 'playwright';
-
 /**
  * Stateful Browser Tool (Singleton)
  * Maintains a persistent browser session across multiple tool calls.
+ *
+ * Playwright is an optional dependency: it is imported on first use, so the
+ * plugin still loads (and reports a clear error) when it isn't installed.
  */
 class BrowserManager {
-  private static instance: BrowserManager;
-  private browser: Browser | null = null;
-  private context: BrowserContext | null = null;
-  private page: Page | null = null;
+  static instance = null;
+  browser = null;
+  context = null;
+  page = null;
 
-  private constructor() {}
-
-  public static getInstance(): BrowserManager {
+  static getInstance() {
     if (!BrowserManager.instance) {
       BrowserManager.instance = new BrowserManager();
     }
     return BrowserManager.instance;
   }
 
-  public async getPage(): Promise<Page> {
+  async getPage() {
     if (!this.browser) {
+      let chromium;
+      try {
+        ({ chromium } = await import('playwright'));
+      } catch {
+        throw new Error('Playwright is not installed. Run "npm install playwright" and "npx playwright install chromium" to enable browser_action.');
+      }
       this.browser = await chromium.launch({ headless: false }); // Show browser for better JARVIS feel
       this.context = await this.browser.newContext();
     }
     if (!this.page || this.page.isClosed()) {
-      this.page = await this.context!.newPage();
+      this.page = await this.context.newPage();
     }
     return this.page;
   }
 
-  public async close(): Promise<void> {
+  async close() {
     if (this.browser) {
       await this.browser.close();
       this.browser = null;
@@ -55,37 +60,39 @@ export default {
   },
   permission: 'caution',
   autonomy: 'assist',
-  
-  execute: async (params: any) => {
+
+  execute: async (params) => {
     const browser = BrowserManager.getInstance();
-    const page = await browser.getPage();
 
     try {
+      if (params.action === 'close') {
+        await browser.close();
+        return { success: true, result: 'Browser closed.' };
+      }
+
+      const page = await browser.getPage();
       switch (params.action) {
         case 'navigate':
           await page.goto(params.url, { waitUntil: 'domcontentloaded' });
           return { success: true, result: `Navigated to ${params.url}` };
-        
+
         case 'click':
           await page.click(params.selector);
           return { success: true, result: `Clicked ${params.selector}` };
-        
+
         case 'type':
           await page.fill(params.selector, params.text);
           return { success: true, result: `Typed into ${params.selector}` };
-        
-        case 'scrape':
+
+        case 'scrape': {
           const content = await page.content();
           return { success: true, result: content.substring(0, 10000) }; // Limit result size
-        
-        case 'close':
-          await browser.close();
-          return { success: true, result: 'Browser closed.' };
-        
+        }
+
         default:
           return { success: false, result: 'Unknown browser action.' };
       }
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, result: `Browser error: ${err.message}` };
     }
   }
